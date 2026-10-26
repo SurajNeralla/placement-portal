@@ -82,6 +82,43 @@ async def main():
             
         student_id = str(uuid.uuid4())
         
+        # Extract document links
+        resume_link = ""
+        for col_name in row.keys():
+            col_l = str(col_name).lower()
+            if any(term in col_l for term in ["upload your document", "resume", "single pdf", "cv"]):
+                v = str(row.get(col_name, '')).strip()
+                if v and v not in ["nan", "none", "-", "--"]:
+                    resume_link = v
+                    break
+
+        photo_link = ""
+        for col_name in row.keys():
+            col_l = str(col_name).lower()
+            if any(term in col_l for term in ["upload your photo", "passport photograph", "photo url"]):
+                v = str(row.get(col_name, '')).strip()
+                if v and v not in ["nan", "none", "-", "--"]:
+                    photo_link = v
+                    break
+
+        tech_link = ""
+        for col_name in row.keys():
+            col_l = str(col_name).lower()
+            if any(term in col_l for term in ["technical certificate", "technical"]):
+                v = str(row.get(col_name, '')).strip()
+                if v and v not in ["nan", "none", "-", "--"]:
+                    tech_link = v
+                    break
+
+        achieve_link = ""
+        for col_name in row.keys():
+            col_l = str(col_name).lower()
+            if any(term in col_l for term in ["achievement certificate", "achievements certificate"]):
+                v = str(row.get(col_name, '')).strip()
+                if v and v not in ["nan", "none", "-", "--"]:
+                    achieve_link = v
+                    break
+
         # Create verified student profile
         student = {
             "institution_id": inst_id,
@@ -101,7 +138,15 @@ async def main():
             "active_backlogs": active_backlogs,
             "total_backlogs": active_backlogs,
             "skills": [],
-            "resume_url": "",
+            "resume_url": resume_link,
+            "photo_url": photo_link,
+            "documents": {
+                "resume": resume_link,
+                "profile_photo": photo_link,
+                "combined_documents": resume_link,
+                "technical_certificates": tech_link,
+                "achievement_certificates": achieve_link
+            },
             "portfolio_links": {},
             "status": "verified",
             "verified_by": "System",

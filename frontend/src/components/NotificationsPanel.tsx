@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BellIcon } from './Icons';
 
 const API = 'http://127.0.0.1:8000/api';
 
@@ -14,7 +15,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ token })
 
   const fetchNotifs = async () => {
     try {
-      const res = await fetch(`${API}/dean/notifications`, {
+      const res = await fetch(`${API}/notifications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -27,9 +28,15 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ token })
 
   useEffect(() => {
     fetchNotifs();
-    const interval = setInterval(fetchNotifs, 30000); // poll every 30s
-    return () => clearInterval(interval);
   }, [token]);
+
+  const handleToggleOpen = () => {
+    const nextState = !open;
+    setOpen(nextState);
+    if (nextState) {
+      fetchNotifs();
+    }
+  };
 
   // Close on outside click
   useEffect(() => {
@@ -42,8 +49,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ token })
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(!open)} style={styles.bell} title="Notifications">
-        <span className="material-symbols-outlined align-middle text-[1.1em]">notifications</span>
+      <button onClick={handleToggleOpen} style={styles.bell} title="Notifications">
+        <BellIcon size={20} color="var(--text-primary)" />
         {unread > 0 && <span style={styles.badge}>{unread > 9 ? '9+' : unread}</span>}
       </button>
 

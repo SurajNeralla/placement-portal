@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import campusBg from '../assets/campus-bg.png';
 
 const API_BASE = 'http://127.0.0.1:8000/api';
 
@@ -10,10 +11,26 @@ interface LoginProps {
     userId: string;
     userName: string;
   }) => void;
-  onNavigateRegister?: () => void;
+  onNavigateOnboard?: () => void;
 }
 
-export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister }) => {
+const PlacementHubLogo: React.FC = () => (
+  <div className="flex flex-col items-center justify-center select-none text-center">
+    <div className="inline-flex items-center gap-2.5 mb-1.5">
+      <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-sm">
+        <span className="material-symbols-outlined text-[22px]">school</span>
+      </div>
+      <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+        Placement<span className="text-indigo-600">Hub</span>
+      </span>
+    </div>
+    <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
+      Campus Recruitment & Career Portal
+    </p>
+  </div>
+);
+
+export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateOnboard }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -23,6 +40,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -52,7 +70,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
         if (data.detail && data.detail.includes("Password not set")) {
           // Trigger OTP flow for first-time login
           setMessage("You don't have a password yet. Sending an OTP...");
-          await handleRequestOtp(e, true);
+          await handleRequestOtp(null, true);
           return;
         }
         throw new Error(data.detail || 'Login failed');
@@ -72,19 +90,25 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
     }
   };
 
-  const handleRequestOtp = async (e: React.FormEvent, skipValidation = false) => {
-    e.preventDefault();
-    if (!email && !skipValidation) return;
+  const handleRequestOtp = async (e: React.FormEvent | null, skipValidation = false) => {
+    if (e) e.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail && !skipValidation) {
+      setError('Please enter your email address first to receive an OTP.');
+      document.getElementById('email')?.focus();
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
     setMessage(null);
+    setDevOtp(null);
 
     try {
       const response = await fetch(`${API_BASE}/auth/otp/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: cleanEmail }),
       });
 
       const data = await response.json();
@@ -95,29 +119,80 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
 
       setMessage(data.message || 'OTP sent successfully!');
       setStep('otp');
+
+      // Check debug endpoint for dev/test environment
+      try {
+        const debugRes = await fetch(`${API_BASE}/auth/otp/debug/${encodeURIComponent(cleanEmail)}`);
+        if (debugRes.ok) {
+          const debugData = await debugRes.json();
+          if (debugData?.otp) {
+            setDevOtp(debugData.otp);
+          }
+        }
+      } catch {
+        // Debug API not available in production
+      }
     } catch (err: any) {
-      setError(err.message || 'Something went wrong.');
+      setError(err.message || 'Something went wrong while requesting OTP.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleOtpChange = (value: string, index: number) => {
-    if (value && !/^\d+$/.test(value)) return;
+    const cleanValue = value.replace(/\D/g, '');
+
+    if (cleanValue.length > 1) {
+      // User pasted or typed multiple digits
+      const digits = cleanValue.slice(0, 6).split('');
+      const newOtp = [...otp];
+      digits.forEach((d, i) => {
+        if (index + i < 6) newOtp[index + i] = d;
+      });
+      setOtp(newOtp);
+      const nextIndex = Math.min(index + digits.length - 1, 5);
+      otpRefs.current[nextIndex]?.focus();
+      const fullOtp = newOtp.join('');
+      if (fullOtp.length === 6) handleVerifyOtp(fullOtp);
+      return;
+    }
+
     const newOtp = [...otp];
-    newOtp[index] = value.slice(-1);
+    newOtp[index] = cleanValue.slice(-1);
     setOtp(newOtp);
-    if (value && index < 5) otpRefs.current[index + 1]?.focus();
+    if (cleanValue && index < 5) otpRefs.current[index + 1]?.focus();
     const fullOtp = newOtp.join('');
     if (fullOtp.length === 6) handleVerifyOtp(fullOtp);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      const newOtp = [...otp];
-      newOtp[index - 1] = '';
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').trim();
+    if (pastedData) {
+      const digits = pastedData.slice(0, 6).split('');
+      const newOtp = Array(6).fill('');
+      digits.forEach((d, i) => { newOtp[i] = d; });
       setOtp(newOtp);
+      const focusIdx = Math.min(digits.length - 1, 5);
+      otpRefs.current[focusIdx]?.focus();
+      if (digits.length === 6) {
+        handleVerifyOtp(digits.join(''));
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+    if (e.key === 'Backspace') {
+      if (!otp[index] && index > 0) {
+        const newOtp = [...otp];
+        newOtp[index - 1] = '';
+        setOtp(newOtp);
+        otpRefs.current[index - 1]?.focus();
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
       otpRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      otpRefs.current[index + 1]?.focus();
     }
   };
 
@@ -131,7 +206,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
       const response = await fetch(`${API_BASE}/auth/otp/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp: otpCode }),
+        body: JSON.stringify({ email: email.trim(), otp: otpCode }),
       });
 
       const data = await response.json();
@@ -173,7 +248,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Failed to set password');
-      
+
       onLoginSuccess({
         token: tempAuthData.access_token,
         role: tempAuthData.role,
@@ -188,344 +263,247 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister
     }
   };
 
-  const handleQuickLogin = async (role: string) => {
-    let testEmail = '';
-    let testPassword = '';
-    
-    if (role === 'Dean') {
-      testEmail = 'test@gvpcdpgc.edu.in';
-      testPassword = 'dean123';
-    } else if (role === 'TPO') {
-      testEmail = 'tpo@gvpcdpgc.edu.in';
-      testPassword = 'tpo123';
-    } else if (role === 'Faculty') {
-      testEmail = 'faculty@gvpcdpgc.edu.in';
-      testPassword = 'faculty123';
-    } else if (role === 'Student') {
-      testEmail = '5241411095@gvpcdpgc.edu.in';
-      testPassword = 'suraj2007';
-    }
-    
-    setEmail(testEmail);
-    setPassword(testPassword);
-    
-    // Attempt login if password logic exists for the role
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: testEmail, password: testPassword, remember_me: rememberMe }),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.detail && data.detail.includes("Password not set")) {
-          setMessage(`Simulating OTP request for ${testEmail}...`);
-          const otpRes = await fetch(`${API_BASE}/auth/otp/request`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: testEmail }),
-          });
-          if (otpRes.ok) {
-            setMessage('OTP Sent. Since this is Quick Login, please enter any digits or check your mock OTP log.');
-            setStep('otp');
-          }
-          return;
-        }
-        throw new Error(data.detail || 'Login failed');
-      }
-
-      onLoginSuccess({
-        token: data.access_token,
-        role: data.role,
-        institutionId: data.institution_id,
-        userId: data.user_id,
-        userName: data.user_name,
-      });
-    } catch (err: any) {
-      setError(`Quick Login failed: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
-    <main className="min-h-screen flex flex-col md:flex-row bg-background font-body-md text-on-background selection:bg-primary-container/30">
-      {/* Left Side: Visual/Branding Section */}
-      <section className="hidden md:flex md:w-1/2 lg:w-[55%] relative overflow-hidden bg-surface-container-lowest items-center justify-center p-xl">
-        <div className="absolute inset-0 opacity-40">
-          <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_20%,#dbe1ff_0%,transparent_50%)]"></div>
-          <div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(circle_at_70%_80%,#dae2fd_0%,transparent_50%)]"></div>
+    <main
+      className="min-h-screen w-full flex flex-col items-center justify-center p-4 sm:p-6 relative bg-stone-100 bg-cover bg-center bg-no-repeat selection:bg-indigo-100 selection:text-indigo-900"
+      style={{
+        backgroundImage: `url(${campusBg})`,
+      }}
+    >
+      {/* Subtle backdrop overlay to ensure crisp contrast with the sketch */}
+      <div className="absolute inset-0 bg-stone-900/[0.02] backdrop-blur-[0.5px] pointer-events-none" />
+
+      {/* Centered Sign In Container */}
+      <div className="w-full max-w-[420px] relative z-10 animate-fade-in-up">
+        {/* Heading directly on top of the sign in box */}
+        <div className="mb-6">
+          <PlacementHubLogo />
         </div>
-        <div className="relative z-10 w-full max-w-2xl text-center">
-          <div className="mb-xl inline-flex items-center gap-sm animate-fade-in">
-            <img src="/logo.png" alt="PlacementHub Logo" className="h-[80px] object-contain" />
-          </div>
-          <div className="relative group animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-            <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 to-secondary/20 rounded-[2rem] blur-xl opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-            <div className="relative overflow-hidden rounded-[2rem] border border-outline-variant bg-white clerk-shadow aspect-[4/3] flex items-center justify-center animate-float">
-              <img 
-                className="object-cover w-full h-full" 
-                alt="Digital illustration for corporate career platform" 
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuCouIHM16rDi1eWzzHntRRk7BivUHixJv3YP2kt_FhzpLgUmntAt_sUmfCkbUBZfNsTUJb5TFGkJrAQQsCo_QJC88zS6_5LgxwAAjSps0iOaNP1gwPLGgDzt66lGuPa1DYPY7IkvJdCWDuTJwqt26SgE1DRUJeACiSVnio8jpBtc9wn4g7sywdSu0pFMPeU8IOsFJEwHaZTuBjHHYwQjKnG5CGe3bj__PRMF6eO481LvcO49aQoQLQbrfGVQUbH6X-wgV0v8avwLhqe" 
-              />
+
+        {/* Sign In Box */}
+        <div className="bg-white/95 backdrop-blur-md border border-stone-200/90 rounded-2xl shadow-xl shadow-stone-900/5 p-7 sm:p-8 space-y-6">
+          <header className="space-y-1 text-center">
+            <h2 className="text-xl font-bold text-slate-800 tracking-tight">Sign in to your account</h2>
+            <p className="text-sm text-slate-500">Enter your credentials to access the portal</p>
+          </header>
+
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200/80 text-red-700 rounded-xl text-sm text-center font-medium">
+              {error}
             </div>
-          </div>
-          <div className="mt-xl space-y-md">
-            <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">Empowering the next generation of talent.</h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-lg mx-auto">The enterprise-grade platform for campus placements, student tracking, and corporate relations.</p>
-          </div>
-        </div>
-      </section>
+          )}
+          {message && (
+            <div className="p-3 bg-blue-50 border border-blue-200/80 text-blue-700 rounded-xl text-sm text-center font-medium">
+              {message}
+            </div>
+          )}
 
-      {/* Right Side: Login Section */}
-      <section className="flex-1 flex flex-col justify-center items-center p-md md:p-2xl bg-background">
-        <div className="md:hidden mb-xl flex items-center justify-center animate-fade-in">
-          <img src="/logo.png" alt="PlacementHub Logo" className="h-[80px] object-contain" />
-        </div>
-        
-        <div className="w-full max-w-[420px] animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-clerk clerk-shadow p-xl space-y-xl">
-            <header className="space-y-xs">
-              <h2 className="font-headline-sm text-headline-sm text-on-surface">Sign in to your account</h2>
-              <p className="font-body-md text-body-md text-on-surface-variant">Enter your details to access the portal.</p>
-            </header>
+          {step === 'login' && (
+            <form className="space-y-5" onSubmit={handleLogin}>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600" htmlFor="email">
+                    Email Address
+                  </label>
+                  <input
+                    className="w-full h-11 px-3.5 rounded-xl border border-stone-300 bg-white text-slate-900 text-sm focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/15 transition-all outline-none placeholder:text-slate-400"
+                    id="email"
+                    placeholder="name@university.edu or student@gmail.com"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
 
-            {error && <div className="p-sm bg-error-container text-on-error-container rounded-lg text-sm text-center">{error}</div>}
-            {message && <div className="p-sm bg-tertiary-fixed text-on-tertiary-fixed rounded-lg text-sm text-center">{message}</div>}
-
-            {step === 'login' && (
-              <form className="space-y-lg" onSubmit={handleLogin}>
-                <div className="space-y-md">
-                  <div className="space-y-xs">
-                    <label className="font-label-md text-label-md text-on-surface" htmlFor="email">Institution Email</label>
-                    <div className="relative group input-halo transition-all duration-200 rounded-lg">
-                      <input 
-                        className="w-full h-11 px-md rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-md focus:border-primary focus:ring-0 transition-colors outline-none" 
-                        id="email" 
-                        placeholder="name@institution.edu" 
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        disabled={isLoading}
-                        required 
-                      />
-                    </div>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600" htmlFor="password">
+                      Password
+                    </label>
                   </div>
-                  <div className="space-y-xs">
-                    <div className="flex justify-between items-center">
-                      <label className="font-label-md text-label-md text-on-surface" htmlFor="password">Password</label>
-                    </div>
-                    <div className="relative group input-halo transition-all duration-200 rounded-lg">
-                      <input 
-                        className="w-full h-11 px-md rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-md focus:border-primary focus:ring-0 transition-colors outline-none" 
-                        id="password" 
-                        placeholder="••••••••" 
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        disabled={isLoading}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-sm">
-                    <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" />
-                    <label htmlFor="rememberMe" className="text-body-sm text-on-surface-variant">Remember Me</label>
-                  </div>
-                </div>
-                
-                <button 
-                  className="w-full h-11 bg-primary text-on-primary rounded-lg font-label-md text-label-md font-semibold btn-hover clerk-shadow disabled:opacity-50" 
-                  type="submit"
-                  disabled={isLoading || !email || !password}
-                >
-                  {isLoading ? 'Signing in...' : 'Sign In'}
-                </button>
-
-                <div className="flex justify-between items-center mt-sm px-1">
-                  <button type="button" onClick={(e) => handleRequestOtp(e, false)} className="text-sm font-semibold text-primary hover:underline disabled:opacity-50" disabled={isLoading || !email}>
-                    Login with OTP
-                  </button>
-                  {onNavigateRegister && (
-                    <button type="button" onClick={onNavigateRegister} className="text-sm font-semibold text-primary hover:underline disabled:opacity-50" disabled={isLoading}>
-                      New Student? Register
-                    </button>
-                  )}
-                </div>
-                
-                <div className="relative py-xs">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-outline-variant"></div>
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="bg-surface-container-lowest px-md font-label-md text-label-md text-on-surface-variant">OR TEST QUICK LOGIN</span>
-                  </div>
+                  <input
+                    className="w-full h-11 px-3.5 rounded-xl border border-stone-300 bg-white text-slate-900 text-sm focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/15 transition-all outline-none placeholder:text-slate-400"
+                    id="password"
+                    placeholder="••••••••"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isLoading}
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-sm">
-                  {['Dean', 'TPO', 'Faculty', 'Student'].map((role) => (
-                    <button 
-                      key={role}
-                      type="button" 
-                      onClick={() => handleQuickLogin(role)}
-                      className="h-9 border border-outline-variant bg-surface-container-lowest text-on-surface rounded-lg font-label-md text-label-md font-medium hover:bg-surface-container-low transition-all"
-                    >
-                      {role}
-                    </button>
-                  ))}
-                </div>
-              </form>
-            )}
-
-            {step === 'otp' && (
-              <div className="space-y-lg">
-                <div className="space-y-xs text-center">
-                  <label className="font-label-md text-label-md text-on-surface">Enter Verification Code</label>
-                  <p className="text-body-sm text-on-surface-variant">Sent to {email}</p>
-                </div>
-                
-                <div className="flex justify-between gap-sm mt-4">
-                  {otp.map((digit, i) => (
-                    <input
-                      key={i}
-                      ref={(el) => { otpRefs.current[i] = el; }}
-                      className="w-12 h-14 text-center text-xl font-bold rounded-lg border border-outline-variant focus:border-primary outline-none focus:ring-2 focus:ring-primary/20 bg-surface-container-lowest text-on-surface transition-all"
-                      type="text"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(e.target.value, i)}
-                      onKeyDown={(e) => handleKeyDown(e, i)}
-                      disabled={isLoading}
-                    />
-                  ))}
-                </div>
-
-                <div className="flex justify-between items-center mt-6">
-                  <button 
-                    type="button" 
-                    className="text-label-md text-on-surface-variant hover:text-on-surface"
-                    onClick={() => { setStep('login'); setOtp(Array(6).fill('')); setError(null); }}
-                  >
-                    ← Back
-                  </button>
-                  <button 
-                    type="button" 
-                    className="text-label-md text-primary hover:underline font-semibold"
-                    onClick={(e) => handleRequestOtp(e, false)}
-                  >
-                    Resend Code
-                  </button>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <input
+                    type="checkbox"
+                    id="rememberMe"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="rounded border-stone-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                  />
+                  <label htmlFor="rememberMe" className="text-xs font-medium text-slate-600 cursor-pointer select-none">
+                    Remember me on this device
+                  </label>
                 </div>
               </div>
-            )}
 
-            {step === 'set_password' && (() => {
-              const pwLen = newPassword.length;
-              const hasNum = /[0-9]/.test(newPassword);
-              const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
-              let strength: 'weak' | 'fair' | 'strong' = 'weak';
-              if (pwLen >= 10 && hasSpecial) strength = 'strong';
-              else if (pwLen >= 6) strength = 'fair';
-              const strengthConfig = {
-                weak:   { color: '#EF4444', label: 'Weak',   width: '33%' },
-                fair:   { color: '#F59E0B', label: 'Fair',   width: '66%' },
-                strong: { color: '#10B981', label: 'Strong', width: '100%' },
-              };
-              const sc = strengthConfig[strength];
-              return (
-                <form className="space-y-lg" onSubmit={handleSetPassword}>
-                  <div className="space-y-md">
-                    <div className="space-y-xs">
-                      <label className="font-label-md text-label-md text-on-surface">New Password</label>
-                      <div className="relative group input-halo transition-all duration-200 rounded-lg">
-                        <input 
-                          className="w-full h-11 px-md rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-md focus:border-primary focus:ring-0 transition-colors outline-none" 
-                          placeholder="Set a strong password" 
-                          type="password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          disabled={isLoading}
-                          required 
-                        />
-                      </div>
-                      {newPassword.length > 0 && (
-                        <div style={{ marginTop: 8 }}>
-                          <div style={{ height: 6, background: 'rgba(0,0,0,0.08)', borderRadius: 99, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: sc.width, background: sc.color, borderRadius: 99, transition: 'all 0.35s ease' }} />
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            <span style={{ fontSize: '0.75rem', color: sc.color, fontWeight: 700 }}>{sc.label}</span>
-                            <span style={{ fontSize: '0.72rem', color: '#6B7280' }}>
-                              {strength === 'weak' ? 'Use 6+ chars' : strength === 'fair' ? 'Add special char for Strong' : '✓ Great password!'}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <button 
-                    className="w-full h-11 bg-primary text-on-primary font-label-md text-label-md rounded-lg flex items-center justify-center btn-hover disabled:opacity-50 disabled:cursor-not-allowed" 
-                    type="submit"
-                    disabled={isLoading || newPassword.length < 6}
+              <button
+                className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-sm font-semibold transition-all shadow-sm hover:shadow active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                type="submit"
+                disabled={isLoading}
+              >
+                {isLoading ? 'Signing in...' : 'Sign In'}
+              </button>
+
+              <div className="flex justify-center items-center pt-1">
+                <button
+                  type="button"
+                  onClick={(e) => handleRequestOtp(e, false)}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline disabled:opacity-50 transition-colors"
+                  disabled={isLoading}
+                >
+                  Login with OTP instead
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === 'otp' && (
+            <div className="space-y-5">
+              <div className="space-y-1 text-center">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Enter Verification Code</label>
+                <p className="text-xs text-slate-500">Sent to <span className="font-semibold text-slate-800">{email}</span></p>
+              </div>
+
+              {devOtp && (
+                <div className="p-3 bg-indigo-50 border border-indigo-200/80 rounded-xl text-center animate-fade-in space-y-2">
+                  <p className="text-xs text-indigo-700 font-medium">Dev OTP Code: <strong className="text-sm font-mono tracking-widest bg-indigo-100/80 px-2 py-0.5 rounded text-indigo-900">{devOtp}</strong></p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const digits = devOtp.split('');
+                      setOtp(digits);
+                      handleVerifyOtp(devOtp);
+                    }}
+                    className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700 font-medium transition-all shadow-sm"
                   >
-                    {isLoading ? 'Saving...' : 'Save & Continue'}
+                    Auto-fill & Verify Code
                   </button>
-                </form>
-              );
-            })()}
+                </div>
+              )}
 
-            <footer className="pt-md border-t border-outline-variant">
-              <p className="font-body-sm text-body-sm text-on-surface-variant text-center">
-                New to PlacementHub? <a className="text-primary font-medium hover:underline" href="#">Create Institution</a>
+              <div className="flex justify-between gap-2 mt-3" onPaste={handleOtpPaste}>
+                {otp.map((digit, i) => (
+                  <input
+                    key={i}
+                    ref={(el) => { otpRefs.current[i] = el; }}
+                    className="w-11 h-13 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-xl border border-stone-300 focus:border-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white text-slate-900 transition-all"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(e.target.value, i)}
+                    onKeyDown={(e) => handleKeyDown(e, i)}
+                    disabled={isLoading}
+                  />
+                ))}
+              </div>
+
+              <div className="flex justify-between items-center pt-2">
+                <button
+                  type="button"
+                  className="text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors"
+                  onClick={() => { setStep('login'); setOtp(Array(6).fill('')); setError(null); setDevOtp(null); }}
+                >
+                  ← Back to Sign In
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-indigo-600 hover:underline font-semibold disabled:opacity-50"
+                  onClick={(e) => handleRequestOtp(e, false)}
+                  disabled={isLoading}
+                >
+                  Resend Code
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 'set_password' && (() => {
+            const pwLen = newPassword.length;
+            const hasNum = /[0-9]/.test(newPassword);
+            const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+            let strength: 'weak' | 'fair' | 'strong' = 'weak';
+            if (pwLen >= 10 && hasNum && hasSpecial) strength = 'strong';
+            else if (pwLen >= 6) strength = 'fair';
+            const strengthConfig = {
+              weak: { color: '#EF4444', label: 'Weak', width: '33%' },
+              fair: { color: '#F59E0B', label: 'Fair', width: '66%' },
+              strong: { color: '#10B981', label: 'Strong', width: '100%' },
+            };
+            const sc = strengthConfig[strength];
+            return (
+              <form className="space-y-5" onSubmit={handleSetPassword}>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">New Password</label>
+                    <input
+                      className="w-full h-11 px-3.5 rounded-xl border border-stone-300 bg-white text-slate-900 text-sm focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/15 transition-all outline-none placeholder:text-slate-400"
+                      placeholder="Set a strong password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      disabled={isLoading}
+                      required
+                    />
+                    {newPassword.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{ width: sc.width, backgroundColor: sc.color }}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span style={{ color: sc.color }} className="font-bold">{sc.label}</span>
+                          <span className="text-slate-500">
+                            {strength === 'weak' ? 'Use 6+ chars' : strength === 'fair' ? 'Add special char' : '✓ Strong password'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-sm rounded-xl transition-all shadow-sm hover:shadow active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                  type="submit"
+                  disabled={isLoading || newPassword.length < 6}
+                >
+                  {isLoading ? 'Saving...' : 'Save & Continue'}
+                </button>
+              </form>
+            );
+          })()}
+
+          {onNavigateOnboard && (
+            <footer className="pt-4 border-t border-stone-200/80 text-center">
+              <p className="text-xs text-slate-500">
+                New to PlacementHub?{' '}
+                <button
+                  type="button"
+                  onClick={onNavigateOnboard}
+                  className="text-indigo-600 font-semibold hover:text-indigo-800 hover:underline focus:outline-none transition-colors"
+                >
+                  Create Institution
+                </button>
               </p>
             </footer>
-          </div>
-
-          <div className="mt-xl flex flex-col items-center gap-md">
-            {/* ── Quick Login / Dev Actions ── */}
-            <div className="flex flex-wrap justify-center gap-2 mb-4 bg-surface-container-low p-3 rounded-lg border border-outline-variant">
-              <span className="text-label-sm font-semibold text-on-surface-variant mr-2 flex items-center">Quick Login:</span>
-              <button 
-                type="button"
-                onClick={() => { setEmail('dean@cbit.ac.in'); setPassword('Password123!'); }}
-                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
-              >
-                Dean
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setEmail('tpo@cbit.ac.in'); setPassword('Password123!'); }}
-                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
-              >
-                TPO
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setEmail('faculty1@cbit.ac.in'); setPassword('Password123!'); }}
-                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
-              >
-                Faculty
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setEmail('5241411095@gvpcdpgc.edu.in'); setPassword('suraj2007'); }}
-                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
-              >
-                Student
-              </button>
-            </div>
-
-            <div className="flex justify-center gap-lg">
-              <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Privacy Policy</a>
-              <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Terms of Service</a>
-              <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Help Center</a>
-            </div>
-          </div>
+          )}
         </div>
-      </section>
+      </div>
     </main>
   );
 };
+

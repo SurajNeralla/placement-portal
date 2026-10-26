@@ -3,7 +3,7 @@ from app.db.tenant import get_current_user, get_tenant_id, RoleChecker
 from app.db.connection import db
 from typing import List
 from datetime import datetime, timezone
-from bson import ObjectId
+from app.db.utils import id_query, parse_id
 
 router = APIRouter()
 
@@ -93,7 +93,7 @@ async def get_stats_by_department(
         })
         result.append({
             "department_id": dept_id,
-            "department_name": dept["department_name"],
+            "department_name": dept.get("department_name") or dept.get("name", "Unknown"),
             "total_students": total,
             "placed": dept_placed,
             "shortlisted": dept_shortlisted,
@@ -126,7 +126,7 @@ async def get_stats_by_program(
         })
         result.append({
             "program_id": prog_id,
-            "program_name": prog["program_name"],
+            "program_name": prog.get("program_name") or prog.get("name", "Unknown"),
             "total_students": total,
             "placed": prog_placed,
             "placement_rate": round(prog_placed / total * 100, 1) if total else 0,
@@ -170,7 +170,7 @@ async def list_staff(
     institution_id: str = Depends(get_tenant_id),
 ):
     users_cursor = db.db.users.find(
-        {"institution_id": institution_id, "role": {"$in": ["TPO", "Faculty"]}},
+        {"institution_id": institution_id, "role": {"$in": ["TPO", "Faculty"]}, "is_active": {"$ne": False}},
         {"_id": 1, "name": 1, "email": 1, "role": 1, "phone": 1, "program_id": 1, "class_id": 1, "created_at": 1}
     )
     users = await users_cursor.to_list(length=200)
@@ -231,7 +231,7 @@ async def mark_notification_read(
     current_user: dict = Depends(get_current_user),
 ):
     await db.db.notifications.update_one(
-        {"_id": ObjectId(notification_id)},
+        id_query(notification_id),
         {"$set": {"status": "read"}}
     )
     return {"message": "Notification marked as read."}
@@ -244,18 +244,26 @@ async def deactivate_user(
     current_user: dict = Depends(get_current_user),
     institution_id: str = Depends(get_tenant_id),
 ):
-    user = await db.db.users.find_one({"_id": ObjectId(user_id), "institution_id": institution_id})
+    user = await db.db.users.find_one(id_query(user_id))
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-    if user.get("role") == "Dean":
-        raise HTTPException(status_code=400, detail="Cannot deactivate Dean accounts.")
-    await db.db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"is_active": False, "deactivated_at": datetime.now(timezone.utc), "deactivated_by": current_user["user_id"]}}
-    )
+    if user.get("role") == "Faculty":
+        await db.db.classes.update_many(
+            {
+                "$or": [
+                    {"faculty_coordinator_id": user_id},
+                    {"faculty_coordinator_id": parse_id(user_id)},
+                    {"faculty_coordinator_id": str(user.get("_id"))}
+                ]
+            },
+            {"$unset": {"faculty_coordinator_id": ""}}
+        )
+
+    await db.db.users.delete_one(id_query(user_id))
     await db.db.audit_logs.insert_one({
-        "action": "user_deactivated", "institution_id": institution_id,
+        "action": "user_removed", "institution_id": institution_id,
         "user_id": current_user["user_id"], "target_user_id": user_id,
         "role": "Dean", "timestamp": datetime.now(timezone.utc), "status": "success",
     })
-    return {"message": f"{user['role']} account deactivated successfully."}
+    return {"message": f"{user['role']} account removed successfully."}
+
