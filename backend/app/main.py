@@ -38,6 +38,19 @@ app.add_middleware(
 async def startup_event():
     logger.info("Initializing API services...")
     await connect_to_mongo()
+    try:
+        from app.db.connection import db
+        user_count = await db.db["users"].count_documents({})
+        if user_count == 0:
+            logger.info("Empty database detected. Auto-seeding initial users and records...")
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from seed import seed_db
+            await seed_db(db.db)
+            logger.info("Auto-seeding complete.")
+    except Exception as e:
+        logger.warning(f"Auto-seed check/execution notice: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():

@@ -11,10 +11,11 @@ MONGO_DB = "placementhub"
 def hash_pw(pw: str) -> str:
     return bcrypt.hashpw(pw.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-async def seed_db():
+async def seed_db(db=None):
     print("Starting mock data seed...")
-    client = AsyncIOMotorClient(MONGO_URI)
-    db = client[MONGO_DB]
+    if db is None:
+        client = AsyncIOMotorClient(MONGO_URI)
+        db = client[MONGO_DB]
     
     # Clear existing collections to start fresh
     print("Clearing collections...")
