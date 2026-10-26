@@ -141,23 +141,23 @@ const FullScreenDocModal: React.FC<FullScreenDocModalProps> = ({
         <div
           style={{
             padding: '14px 22px',
-            background: 'linear-gradient(135deg, #0B192C 0%, #1E3E62 100%)',
-            color: '#FFFFFF',
+            background: '#FFFFFF',
+            borderBottom: '1px solid #E2E8F0',
+            color: '#0F172A',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: 12,
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FileTextIcon size={20} color="#93C5FD" />
+            <FileTextIcon size={20} color="#2563EB" />
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0F172A', letterSpacing: '-0.01em' }}>
                 {title}
               </h3>
-              <span style={{ fontSize: '0.75rem', color: '#93C5FD', opacity: 0.9 }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
                 {doc.isDrive ? 'Google Drive Cloud Document' : 'PDF Document Viewer'}
               </span>
             </div>
@@ -382,9 +382,10 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         {/* ── HEADER BANNER ── */}
         <div
           style={{
-            background: 'linear-gradient(135deg, #0B192C 0%, #1E3E62 100%)',
+            background: '#FFFFFF',
+            borderBottom: '1px solid #E2E8F0',
             padding: '22px 28px',
-            color: '#FFFFFF',
+            color: '#0F172A',
             position: 'relative',
           }}
         >
@@ -396,15 +397,15 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               position: 'absolute',
               top: 18,
               right: 18,
-              background: 'rgba(255, 255, 255, 0.12)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
+              background: '#F1F5F9',
+              border: '1px solid #E2E8F0',
               borderRadius: '50%',
-              width: 34,
-              height: 34,
+              width: 32,
+              height: 32,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#FFFFFF',
+              color: '#64748B',
               cursor: 'pointer',
               transition: 'background 0.2s',
             }}
@@ -428,14 +429,14 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             {/* Main Info */}
             <div style={{ flex: 1, minWidth: 240 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#0F172A', letterSpacing: '-0.02em' }}>
                   {name}
                 </h2>
                 <span
                   style={{
-                    background: 'rgba(34, 197, 94, 0.2)',
-                    color: '#86EFAC',
-                    border: '1px solid rgba(34, 197, 94, 0.4)',
+                    background: '#F0FDF4',
+                    color: '#16A34A',
+                    border: '1px solid #BBF7D0',
                     padding: '2px 10px',
                     borderRadius: 12,
                     fontSize: '0.75rem',
@@ -445,7 +446,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     gap: 4,
                   }}
                 >
-                  <CheckCircleIcon size={12} color="#86EFAC" />
+                  <CheckCircleIcon size={12} color="#16A34A" />
                   {student.status || 'Active Student'}
                 </span>
               </div>

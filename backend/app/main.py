@@ -74,6 +74,11 @@ app.include_router(analytics.router, prefix="/api/tpo/analytics", tags=["Analyti
 app.include_router(resume.router, prefix="/api/resume", tags=["Resume Intelligence"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI System"])
 
+from app.routes.verification import student_verification_router, auth_callback_router
+app.include_router(student_verification_router, prefix="/api/student/verification", tags=["Professional Verification"])
+app.include_router(auth_callback_router, prefix="/api/auth", tags=["OAuth Callbacks"])
+
+
 
 
 @app.get("/")

@@ -9,7 +9,7 @@ import { StudentDrives } from './pages/StudentDrives';
 import { UserProfile } from './pages/UserProfile';
 import { Sidebar } from './components/Sidebar';
 import { NotificationsPanel } from './components/NotificationsPanel';
-import { SunIcon, MoonIcon, LogoutIcon, UserIcon } from './components/Icons';
+import { LogoutIcon, UserIcon } from './components/Icons';
 
 interface AuthState {
   token: string;
@@ -26,7 +26,6 @@ export default function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [view, setView] = useState<'login' | 'onboard' | 'dashboard' | 'profile'>('login');
   const [currentTab, setCurrentTab] = useState<string>('drives');
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [sessionWarning, setSessionWarning] = useState<number | null>(null);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
 
@@ -34,24 +33,17 @@ export default function App() {
   const warningRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<number>(WARNING_SECONDS);
 
-  // Dark mode effect
+  // Ensure window title and enforce light theme across all logins
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-    localStorage.setItem('darkMode', String(darkMode));
-    if (darkMode) {
-      document.documentElement.style.setProperty('--bg-main', '#0F172A');
-      document.documentElement.style.setProperty('--bg-surface', '#1E293B');
-      document.documentElement.style.setProperty('--text-primary', '#F1F5F9');
-      document.documentElement.style.setProperty('--text-secondary', '#94A3B8');
-      document.documentElement.style.setProperty('--border-color', 'rgba(255,255,255,0.08)');
-    } else {
-      document.documentElement.style.setProperty('--bg-main', '#F8FAFC');
-      document.documentElement.style.setProperty('--bg-surface', '#FFFFFF');
-      document.documentElement.style.setProperty('--text-primary', '#0F172A');
-      document.documentElement.style.setProperty('--text-secondary', '#64748B');
-      document.documentElement.style.setProperty('--border-color', 'rgba(0,0,0,0.08)');
-    }
-  }, [darkMode]);
+    document.title = 'PlacementHub - Placement Portal';
+    document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.removeItem('darkMode');
+    document.documentElement.style.setProperty('--bg-main', '#F8FAFC');
+    document.documentElement.style.setProperty('--bg-surface', '#FFFFFF');
+    document.documentElement.style.setProperty('--text-primary', '#0F172A');
+    document.documentElement.style.setProperty('--text-secondary', '#64748B');
+    document.documentElement.style.setProperty('--border-color', '#E2E8F0');
+  }, []);
 
   const clearTimers = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -168,25 +160,67 @@ export default function App() {
         {/* Upper Top Header Bar */}
         <header
           style={{
-            height: 64,
-            background: 'var(--card-bg)',
-            borderBottom: '1px solid var(--border-color)',
+            height: 56,
+            background: '#FFFFFF',
+            borderBottom: '1px solid #E2E8F0',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
-            padding: '0 32px',
+            justifyContent: 'space-between',
+            padding: '0 28px',
             position: 'sticky',
             top: 0,
             zIndex: 100,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
           }}
         >
-          {/* Right: Notifications, Dark Mode, Profile Dropdown */}
+          {/* Left: Quick Omnibar Search */}
+          <div style={{ display: 'flex', alignItems: 'center', width: 340, position: 'relative' }}>
+            <span
+              className="material-symbols-outlined"
+              style={{ position: 'absolute', left: 10, fontSize: 18, color: '#94A3B8' }}
+            >
+              search
+            </span>
+            <input
+              type="text"
+              placeholder="Search roll no, company, student... (⌘K)"
+              style={{
+                width: '100%',
+                height: 34,
+                paddingLeft: 34,
+                paddingRight: 40,
+                fontSize: '0.8rem',
+                backgroundColor: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                borderRadius: 8,
+                outline: 'none',
+                color: '#0F172A',
+              }}
+            />
+            <kbd
+              style={{
+                position: 'absolute',
+                right: 8,
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                color: '#64748B',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #CBD5E1',
+                borderRadius: 4,
+                padding: '2px 5px',
+                fontFamily: 'monospace',
+              }}
+            >
+              ⌘K
+            </kbd>
+          </div>
+
+          {/* Right: Notifications, Actions & Profile Dropdown */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             {/* Notifications Panel */}
             <NotificationsPanel token={auth.token} />
 
-            {/* User Profile Dropdown Pill (Matching Image 0) */}
+            {/* User Profile Dropdown Pill */}
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
@@ -195,39 +229,40 @@ export default function App() {
                   alignItems: 'center',
                   gap: 10,
                   cursor: 'pointer',
-                  background: 'var(--bg-main)',
-                  padding: '4px 14px 4px 6px',
-                  borderRadius: 24,
-                  border: '1px solid var(--border-color)',
+                  background: '#F8FAFC',
+                  padding: '4px 12px 4px 6px',
+                  borderRadius: 20,
+                  border: '1px solid #E2E8F0',
                   outline: 'none',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.15s ease',
                 }}
               >
                 <div
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 28,
+                    height: 28,
                     borderRadius: '50%',
-                    background: '#0B192C',
-                    color: '#FFFFFF',
+                    background: '#EFF6FF',
+                    color: '#2563EB',
+                    border: '1px solid #BFDBFE',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontWeight: 800,
-                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
                   }}
                 >
                   {auth.userName ? auth.userName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'U'}
                 </div>
                 <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.1 }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A', lineHeight: 1.1 }}>
                     {auth.userName || 'User'}
                   </span>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                  <span style={{ fontSize: '0.68rem', color: '#64748B', marginTop: 1 }}>
                     {auth.role}
                   </span>
                 </div>
-                <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginLeft: 4 }}>
+                <span style={{ fontSize: '0.65rem', color: '#94A3B8', marginLeft: 4 }}>
                   {isProfileDropdownOpen ? '▲' : '▼'}
                 </span>
               </button>
@@ -286,29 +321,6 @@ export default function App() {
                     >
                       <UserIcon size={16} color="var(--text-secondary)" />
                       Account Profile
-                    </button>
-
-                    <button
-                      onClick={() => setDarkMode(!darkMode)}
-                      style={{
-                        width: '100%',
-                        padding: '10px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.88rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-main)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                    >
-                      {darkMode ? <SunIcon size={16} /> : <MoonIcon size={16} />}
-                      {darkMode ? 'Light Mode' : 'Dark Mode'}
                     </button>
 
                     <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
@@ -410,9 +422,34 @@ export default function App() {
                 )}
                 {auth.role === 'Student' && (
                   <div className="animate-fade-in">
-                    {currentTab === 'profile' && <StudentProfile token={auth.token} />}
-                    {currentTab === 'drives' && <StudentDrives token={auth.token} activeTab="drives" />}
-                    {currentTab === 'events' && <StudentDrives token={auth.token} activeTab="events" />}
+                    {currentTab === 'profile' && (
+                      <StudentProfile
+                        token={auth.token}
+                        initialTab="basic"
+                        onNavigateToDrives={() => setCurrentTab('drives')}
+                      />
+                    )}
+                    {currentTab === 'verification' && (
+                      <StudentProfile
+                        token={auth.token}
+                        initialTab="verification"
+                        onNavigateToDrives={() => setCurrentTab('drives')}
+                      />
+                    )}
+                    {currentTab === 'drives' && (
+                      <StudentDrives
+                        token={auth.token}
+                        activeTab="drives"
+                        onNavigateToVerification={() => setCurrentTab('verification')}
+                      />
+                    )}
+                    {currentTab === 'events' && (
+                      <StudentDrives
+                        token={auth.token}
+                        activeTab="events"
+                        onNavigateToVerification={() => setCurrentTab('verification')}
+                      />
+                    )}
                   </div>
                 )}
               </>

@@ -30,7 +30,7 @@ class TokenResponse(BaseModel):
 # Academic Hierarchy Setup schemas
 class DepartmentCreate(BaseModel):
     name: str
-    classes: List[str]  # e.g., ["CSE-A", "CSE-B"]
+    classes: List[str] = []  # optional / default empty
 
 class ProgramCreate(BaseModel):
     name: str

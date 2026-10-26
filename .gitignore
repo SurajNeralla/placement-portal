@@ -8,3 +8,5 @@ mongodb_local/
 mongodb.zip
 backend/uploads/
 .DS_Store
+PlacementHUb/
+frontend/dist/

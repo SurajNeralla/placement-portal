@@ -635,28 +635,29 @@ export const DeanStudentHierarchyView: React.FC<DeanStudentHierarchyViewProps> =
           {/* Top Overall Institution KPI Banner */}
           <div
             style={{
-              background: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)',
-              color: '#FFFFFF',
-              borderRadius: 16,
+              background: '#FFFFFF',
+              border: '1px solid #E2E8F0',
+              color: '#0F172A',
+              borderRadius: 14,
               padding: '24px 28px',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
               gap: 20,
-              boxShadow: '0 4px 20px rgba(15, 23, 42, 0.15)',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
             }}
           >
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={{ background: 'rgba(255,255,255,0.12)', padding: '6px', borderRadius: 8, display: 'inline-flex' }}>
-                  <SchoolIcon size={20} color="#60A5FA" />
+                <span style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: '6px', borderRadius: 8, display: 'inline-flex' }}>
+                  <SchoolIcon size={20} color="#2563EB" />
                 </span>
-                <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
+                <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
                   Institution Departments Overview
                 </h2>
               </div>
-              <p style={{ margin: 0, fontSize: '0.88rem', color: '#94A3B8', maxWidth: 520 }}>
+              <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748B', maxWidth: 520 }}>
                 High-level academic registry overview across all degree departments, professional programs, and active student cohorts.
               </p>
             </div>
@@ -896,22 +897,23 @@ export const DeanStudentHierarchyView: React.FC<DeanStudentHierarchyViewProps> =
           {/* Department Header Banner */}
           <div
             style={{
-              background: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)',
-              color: '#FFFFFF',
-              borderRadius: 16,
+              background: '#FFFFFF',
+              border: '1px solid #E2E8F0',
+              color: '#0F172A',
+              borderRadius: 14,
               padding: '24px 28px',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
               gap: 20,
-              boxShadow: '0 4px 20px rgba(15, 23, 42, 0.15)',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
             }}
           >
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={{ background: 'rgba(255,255,255,0.12)', padding: '6px', borderRadius: 8, display: 'inline-flex' }}>
-                  <GraduationCapIcon size={20} color="#60A5FA" />
+                <span style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: '6px', borderRadius: 8, display: 'inline-flex' }}>
+                  <GraduationCapIcon size={20} color="#2563EB" />
                 </span>
                 <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
                   {selectedDepartment.name} Branches
@@ -1159,16 +1161,17 @@ export const DeanStudentHierarchyView: React.FC<DeanStudentHierarchyViewProps> =
           {/* Branch Header Banner */}
           <div
             style={{
-              background: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)',
-              color: '#FFFFFF',
-              borderRadius: 16,
+              background: '#FFFFFF',
+              border: '1px solid #E2E8F0',
+              color: '#0F172A',
+              borderRadius: 14,
               padding: '24px 28px',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
               gap: 20,
-              boxShadow: '0 4px 20px rgba(15, 23, 42, 0.15)',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
             }}
           >
             <div>

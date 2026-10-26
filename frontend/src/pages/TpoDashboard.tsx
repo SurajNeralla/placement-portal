@@ -539,19 +539,18 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  padding: '10px 18px',
+                  background: '#EFF6FF',
+                  color: '#2563EB',
+                  border: '1px solid #BFDBFE',
+                  padding: '9px 16px',
                   borderRadius: 8,
-                  fontWeight: 700,
-                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
                   cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
-                  transition: 'all 0.2s ease',
+                  transition: 'all 0.15s ease',
                 }}
               >
-                <SparklesIcon size={16} color="#FFF" /> Create with AI ⚡
+                <SparklesIcon size={16} color="#2563EB" /> Create with AI ⚡
               </button>
 
               <button
@@ -564,15 +563,16 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  background: '#0B192C',
+                  background: '#2563EB',
                   color: '#FFFFFF',
                   border: 'none',
-                  padding: '10px 18px',
+                  padding: '9px 16px',
                   borderRadius: 8,
-                  fontWeight: 700,
-                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
                   cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(11,25,44,0.15)',
+                  boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
+                  transition: 'background-color 0.15s ease',
                 }}
               >
                 <PlusIcon size={16} color="#FFF" /> Create Manually
