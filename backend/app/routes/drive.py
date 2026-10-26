@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from app.db.tenant import get_current_user, get_tenant_id, RoleChecker
 from app.db.connection import db
 from app.services.email import send_drive_notification_email
@@ -25,7 +25,7 @@ class DriveCreatePayload(BaseModel):
     drive_deadline: datetime
 
 @router.post("/create", status_code=status.HTTP_201_CREATED, dependencies=[Depends(RoleChecker(["TPO"]))])
-async def create_drive(payload: DriveCreatePayload, current_user: dict = Depends(get_current_user), institution_id: str = Depends(get_tenant_id)):
+async def create_drive(payload: DriveCreatePayload, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user), institution_id: str = Depends(get_tenant_id)):
     # Parse deadline to UTC
     deadline = payload.drive_deadline
     if deadline.tzinfo is None:
@@ -86,21 +86,24 @@ async def create_drive(payload: DriveCreatePayload, current_user: dict = Depends
             "created_at": datetime.now(timezone.utc)
         })
         
-        # 2. Send real email notification
-        student_email = student.get("emails", {}).get("institute") or student.get("emails", {}).get("personal")
-        if student_email:
-            await send_drive_notification_email(
-                email=student_email,
-                student_name=student.get("name", "Student"),
-                company_name=payload.company_name,
-                job_role=payload.job_role,
-                package=payload.package,
-                deadline=deadline.strftime("%d %b %Y, %I:%M %p UTC"),
-                apply_url="http://localhost:5173/dashboard",
-            )
-
     if notifications:
         await db.db.notifications.insert_many(notifications)
+        
+    async def send_emails():
+        for student in eligible_students:
+            student_email = student.get("emails", {}).get("institute") or student.get("emails", {}).get("personal")
+            if student_email:
+                await send_drive_notification_email(
+                    email=student_email,
+                    student_name=student.get("name", "Student"),
+                    company_name=payload.company_name,
+                    job_role=payload.job_role,
+                    package=payload.package,
+                    deadline=deadline.strftime("%d %b %Y, %I:%M %p UTC"),
+                    apply_url="http://localhost:5173/dashboard",
+                )
+    
+    background_tasks.add_task(send_emails)
         
     # Log Audit
     await db.db.audit_logs.insert_one({
@@ -120,6 +123,52 @@ async def create_drive(payload: DriveCreatePayload, current_user: dict = Depends
         "drive_id": drive_id,
         "eligible_students_notified": len(eligible_students)
     }
+
+@router.put("/{drive_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(RoleChecker(["TPO"]))])
+async def update_drive(drive_id: str, payload: DriveCreatePayload, current_user: dict = Depends(get_current_user), institution_id: str = Depends(get_tenant_id)):
+    deadline = payload.drive_deadline
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+        
+    update_doc = {
+        "company_name": payload.company_name.strip(),
+        "job_role": payload.job_role.strip(),
+        "package": payload.package.strip(),
+        "location": payload.location.strip(),
+        "mode": payload.mode,
+        "min_cgpa": payload.min_cgpa,
+        "max_backlogs": payload.max_backlogs,
+        "allowed_departments": payload.allowed_departments,
+        "allowed_programs": payload.allowed_programs,
+        "gender_filter": payload.gender_filter,
+        "passout_year": payload.passout_year,
+        "external_apply_link": payload.external_apply_link,
+        "drive_deadline": deadline,
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    res = await db.db.placement_drives.update_one(
+        {"_id": ObjectId(drive_id), "institution_id": institution_id},
+        {"$set": update_doc}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Drive not found")
+        
+    return {"message": "Placement drive updated successfully."}
+
+@router.delete("/{drive_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(RoleChecker(["TPO"]))])
+async def delete_drive(drive_id: str, current_user: dict = Depends(get_current_user), institution_id: str = Depends(get_tenant_id)):
+    res = await db.db.placement_drives.delete_one({"_id": ObjectId(drive_id), "institution_id": institution_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Drive not found")
+        
+    # Also delete associated applications
+    await db.db.applications.delete_many({"drive_id": drive_id})
+    # Also delete associated notifications
+    await db.db.notifications.delete_many({"drive_id": drive_id})
+    
+    return {"message": "Placement drive deleted successfully."}
+
 
 # Student views their eligible placement drive feed
 @router.get("/student-feed", dependencies=[Depends(RoleChecker(["Student"]))])

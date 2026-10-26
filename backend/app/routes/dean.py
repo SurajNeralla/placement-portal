@@ -187,13 +187,14 @@ async def list_students(
     institution_id: str = Depends(get_tenant_id),
 ):
     students_cursor = db.db.students.find(
-        {"institution_id": institution_id},
-        {"_id": 1, "name": 1, "roll_number": 1, "department_name": 1, "program_name": 1, "cgpa": 1, "status": 1, "emails": 1}
+        {"institution_id": institution_id}
     )
     students = await students_cursor.to_list(length=2000)
     for s in students:
         s["id"] = str(s["_id"])
         del s["_id"]
+        if "password_hash" in s:
+            del s["password_hash"]
     return students
 
 

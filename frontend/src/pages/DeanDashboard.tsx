@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-const API = 'http://localhost:8000/api';
+const API = 'http://127.0.0.1:8000/api';
 
 interface DeanDashboardProps {
   token: string;
@@ -21,6 +21,7 @@ export const DeanDashboard: React.FC<DeanDashboardProps> = ({ token, institution
   const [hierarchy, setHierarchy] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [studentSearch, setStudentSearch] = useState('');
+  const [studentFilters, setStudentFilters] = useState<any>({});
   const [showTpoModal, setShowTpoModal] = useState(false);
   const [tpoForm, setTpoForm] = useState({ name: '', email: '', password: '', phone: '', program_id: '' });
   const [tpoError, setTpoError] = useState('');
@@ -54,11 +55,25 @@ export const DeanDashboard: React.FC<DeanDashboardProps> = ({ token, institution
 
   useEffect(() => { load(); }, [load]);
 
-  const filteredStudents = students.filter(s =>
-    !studentSearch || s.name?.toLowerCase().includes(studentSearch.toLowerCase()) ||
-    s.roll_number?.toLowerCase().includes(studentSearch.toLowerCase()) ||
-    s.department_name?.toLowerCase().includes(studentSearch.toLowerCase())
-  );
+  const filteredStudents = students.filter(s => {
+    const q = studentSearch.toLowerCase();
+    const matchesSearch = !q || s.name?.toLowerCase().includes(q) ||
+      s.roll_number?.toLowerCase().includes(q) ||
+      s.department_name?.toLowerCase().includes(q) ||
+      s.emails?.institute?.toLowerCase().includes(q) ||
+      s.emails?.personal?.toLowerCase().includes(q);
+    const matchesDept = !studentFilters.dept || s.department_name === studentFilters.dept;
+    const matchesProg = !studentFilters.program || s.program_name === studentFilters.program;
+    const matchesStatus = !studentFilters.status || s.status === studentFilters.status;
+    const matchesCgpa = !studentFilters.cgpa || (
+      studentFilters.cgpa === '9+' ? s.cgpa >= 9 :
+      studentFilters.cgpa === '8+' ? s.cgpa >= 8 :
+      studentFilters.cgpa === '7+' ? s.cgpa >= 7 :
+      studentFilters.cgpa === '6+' ? s.cgpa >= 6 :
+      studentFilters.cgpa === '<6' ? s.cgpa < 6 : true
+    );
+    return matchesSearch && matchesDept && matchesProg && matchesStatus && matchesCgpa;
+  });
 
   const handleCreateTpo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,20 +276,75 @@ export const DeanDashboard: React.FC<DeanDashboardProps> = ({ token, institution
 
               {tab === 'students' && (
                 <div className="bg-surface-container-lowest rounded-xl card-shadow overflow-hidden">
-                  <div className="px-xl py-lg border-b border-outline-variant flex justify-between items-center bg-surface-container-low/50">
-                    <h2 className="text-headline-sm font-headline-sm text-on-surface">Student Registry</h2>
-                    <input
-                      className="bg-white border border-outline-variant rounded-lg px-md py-sm text-body-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary w-64"
-                      placeholder="Search by name, roll no, dept…"
-                      value={studentSearch}
-                      onChange={e => setStudentSearch(e.target.value)}
-                    />
+                  {/* Filter Bar */}
+                  <div className="px-xl py-lg border-b border-outline-variant bg-surface-container-low/50">
+                    <div className="flex justify-between items-center mb-md">
+                      <h2 className="text-headline-sm font-headline-sm text-on-surface">Student Registry</h2>
+                      <span style={{ fontSize: '0.78rem', color: '#6B7280', fontWeight: 600 }}>{filteredStudents.length} / {students.length} students</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+                      <input
+                        className="bg-white border border-outline-variant rounded-lg px-md py-sm text-body-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        placeholder="🔍 Name, roll, email..."
+                        value={studentSearch}
+                        onChange={e => setStudentSearch(e.target.value)}
+                      />
+                      <select
+                        className="bg-white border border-outline-variant rounded-lg px-md py-sm text-body-sm outline-none focus:border-primary"
+                        value={(studentFilters as any)?.dept || ''}
+                        onChange={e => setStudentFilters((f: any) => ({ ...f, dept: e.target.value }))}
+                      >
+                        <option value="">All Departments</option>
+                        {[...new Set(students.map(s => s.department_name).filter(Boolean))].map((d: any) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="bg-white border border-outline-variant rounded-lg px-md py-sm text-body-sm outline-none focus:border-primary"
+                        value={(studentFilters as any)?.program || ''}
+                        onChange={e => setStudentFilters((f: any) => ({ ...f, program: e.target.value }))}
+                      >
+                        <option value="">All Programs</option>
+                        {[...new Set(students.map(s => s.program_name).filter(Boolean))].map((p: any) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="bg-white border border-outline-variant rounded-lg px-md py-sm text-body-sm outline-none focus:border-primary"
+                        value={(studentFilters as any)?.status || ''}
+                        onChange={e => setStudentFilters((f: any) => ({ ...f, status: e.target.value }))}
+                      >
+                        <option value="">All Statuses</option>
+                        <option value="verified">Verified</option>
+                        <option value="pending">Pending</option>
+                      </select>
+                      <select
+                        className="bg-white border border-outline-variant rounded-lg px-md py-sm text-body-sm outline-none focus:border-primary"
+                        value={(studentFilters as any)?.cgpa || ''}
+                        onChange={e => setStudentFilters((f: any) => ({ ...f, cgpa: e.target.value }))}
+                      >
+                        <option value="">All CGPAs</option>
+                        <option value="9+">9.0+</option>
+                        <option value="8+">8.0+</option>
+                        <option value="7+">7.0+</option>
+                        <option value="6+">6.0+</option>
+                        <option value="<6">Below 6.0</option>
+                      </select>
+                      {((studentFilters as any)?.dept || (studentFilters as any)?.program || (studentFilters as any)?.status || (studentFilters as any)?.cgpa) && (
+                        <button
+                          className="bg-red-50 border border-red-200 text-red-600 rounded-lg px-md py-sm text-body-sm font-semibold hover:bg-red-100"
+                          onClick={() => setStudentFilters({})}
+                        >
+                          ✕ Clear Filters
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-surface-container-low/50">
-                          {['Name','Roll No.','Program','Department','CGPA','Status'].map(h=><th key={h} className="px-xl py-md text-label-md text-on-surface-variant border-b border-outline-variant">{h}</th>)}
+                          {['Name','Roll No.','Program','Department','CGPA','Backlogs','Status'].map(h=><th key={h} className="px-xl py-md text-label-md text-on-surface-variant border-b border-outline-variant">{h}</th>)}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-outline-variant">
@@ -284,14 +354,24 @@ export const DeanDashboard: React.FC<DeanDashboardProps> = ({ token, institution
                             <td className="px-xl py-md text-body-sm text-primary font-mono text-xs">{st.roll_number}</td>
                             <td className="px-xl py-md text-body-sm">{st.program_name}</td>
                             <td className="px-xl py-md text-body-sm">{st.department_name}</td>
-                            <td className="px-xl py-md text-body-sm font-bold">{st.cgpa?.toFixed(1)}</td>
+                            <td className="px-xl py-md text-body-sm font-bold">
+                              <span style={{ color: st.cgpa >= 8 ? '#10B981' : st.cgpa >= 6 ? '#F59E0B' : '#EF4444' }}>
+                                {st.cgpa?.toFixed(1)}
+                              </span>
+                            </td>
+                            <td className="px-xl py-md text-body-sm">{st.active_backlogs ?? '—'}</td>
                             <td className="px-xl py-md">
-                              <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded uppercase">{st.status}</span>
+                              <span className={`text-xs font-bold px-2 py-1 rounded uppercase ${st.status === 'verified' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                {st.status}
+                              </span>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    {filteredStudents.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>No students match the selected filters.</div>
+                    )}
                   </div>
                 </div>
               )}

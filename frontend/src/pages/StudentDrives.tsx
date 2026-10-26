@@ -59,14 +59,17 @@ export const StudentDrives: React.FC<StudentDrivesProps> = ({ token }) => {
     setTimeout(() => { setError(null); setSuccess(null); }, 4500);
   };
 
-  const handleApply = async (driveId: string) => {
-    setActionId(driveId);
+  const handleApply = async (drive: any) => {
+    setActionId(drive.id);
     try {
-      const res = await fetch(`${API}/drives/${driveId}/apply`, { method: 'POST', headers });
+      const res = await fetch(`${API}/drives/${drive.id}/apply`, { method: 'POST', headers });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Application failed.');
       showMsg('Application submitted! Your verified profile was shared with HR. 🎉');
       load();
+      if (drive.external_apply_link) {
+        window.open(drive.external_apply_link, '_blank');
+      }
     } catch (e: any) {
       showMsg(e.message, true);
     } finally { setActionId(null); }
@@ -220,7 +223,7 @@ export const StudentDrives: React.FC<StudentDrivesProps> = ({ token }) => {
                               {isActing ? '…' : 'Withdraw'}
                             </button>
                           ) : (
-                            <button onClick={() => handleApply(d.id)} disabled={isActing} style={s.applyBtn}>
+                            <button onClick={() => handleApply(d)} disabled={isActing} style={s.applyBtn}>
                               {isActing ? 'Applying…' : 'Apply Now →'}
                             </button>
                           )

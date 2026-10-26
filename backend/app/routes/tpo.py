@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from app.db.tenant import get_current_user, get_tenant_id, RoleChecker
 from app.db.connection import db
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timezone
 from bson import ObjectId
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import io
 
@@ -20,6 +20,7 @@ class ApplicationStatusUpdate(BaseModel):
 
 class ExportFieldsPayload(BaseModel):
     fields: List[str]
+    status_filter: Optional[str] = None
 
 class BulkStatusUpdate(BaseModel):
     application_ids: List[str]
@@ -67,7 +68,53 @@ async def list_tpo_drives(
             "placed": placed,
             "rejected": rejected,
             "external_apply_link": d.get("external_apply_link"),
+            "gender_filter": d.get("gender_filter", "All"),
+            "passout_year": d.get("passout_year", datetime.now().year),
+            "allowed_departments": d.get("allowed_departments", []),
+            "allowed_programs": d.get("allowed_programs", [])
         })
+    return result
+
+# ── TPO Students Listing ─────────────────────────────────────────────────────
+@router.get("/students", dependencies=[Depends(RoleChecker(["TPO"]))])
+async def get_tpo_students(
+    current_user: dict = Depends(get_current_user),
+    institution_id: str = Depends(get_tenant_id),
+):
+    """Get all students belonging to the TPO's program."""
+    # Find the TPO's program_id
+    tpo_user = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
+    if not tpo_user or not tpo_user.get("program_id"):
+        raise HTTPException(status_code=400, detail="TPO profile incomplete.")
+        
+    program_id = tpo_user["program_id"]
+    
+    # Fetch students for this program
+    students_cursor = db.db.students.find({
+        "institution_id": institution_id,
+        "program_id": program_id
+    })
+    
+    students = await students_cursor.to_list(length=1000)
+    
+    result = []
+    for st in students:
+        st_data = {
+            "id": str(st["_id"]),
+            "name": st.get("name"),
+            "roll_number": st.get("roll_number"),
+            "emails": st.get("emails", {}),
+            "mobile": st.get("mobile"),
+            "status": st.get("status"),
+            "cgpa": st.get("cgpa"),
+            "active_backlogs": st.get("active_backlogs"),
+            "program_name": st.get("program_name"),
+            "department_name": st.get("department_name"),
+            "class_name": st.get("class_name"),
+            "extra_data": st.get("extra_data", {})
+        }
+        result.append(st_data)
+        
     return result
 
 
@@ -236,6 +283,29 @@ async def place_student(
 
 
 # ── Dynamic Excel Export ─────────────────────────────────────────────────────
+@router.post("/parse-template", dependencies=[Depends(RoleChecker(["TPO"]))])
+async def parse_hr_template(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        wb = load_workbook(filename=io.BytesIO(contents), read_only=True)
+        ws = wb.active
+        
+        # Extract headers from the first row
+        headers = []
+        for cell in ws[1]:
+            if cell.value:
+                headers.append(str(cell.value).strip())
+                
+        return {"headers": headers}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse template: {str(e)}")
+
 @router.post("/drives/{drive_id}/export", dependencies=[Depends(RoleChecker(["TPO"]))])
 async def export_drive_applications(
     drive_id: str,
@@ -246,7 +316,12 @@ async def export_drive_applications(
     drive = await db.db.placement_drives.find_one({"_id": ObjectId(drive_id), "institution_id": institution_id})
     if not drive:
         raise HTTPException(status_code=404, detail="Drive not found.")
-    apps_cursor = db.db.applications.find({"drive_id": drive_id, "institution_id": institution_id})
+        
+    query = {"drive_id": drive_id, "institution_id": institution_id}
+    if payload.status_filter:
+        query["status"] = payload.status_filter
+        
+    apps_cursor = db.db.applications.find(query)
     apps = await apps_cursor.to_list(length=1000)
 
     wb = Workbook()
@@ -262,29 +337,57 @@ async def export_drive_applications(
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
+    def normalize_field(f: str) -> str:
+        return f.lower().strip().replace(" ", "").replace("_", "").replace("-", "")
+
     for app in apps:
         student = await db.db.students.find_one({"_id": ObjectId(app["student_id"])})
         if not student:
             continue
         row = []
-        for field in payload.fields:
-            if field == "Name":             row.append(student.get("name", ""))
-            elif field == "Roll Number":    row.append(student.get("roll_number", ""))
-            elif field == "Personal Email": row.append(student.get("emails", {}).get("personal", ""))
-            elif field == "Institute Email":row.append(student.get("emails", {}).get("institute", ""))
-            elif field == "CGPA":           row.append(student.get("cgpa", 0.0))
-            elif field == "Mobile":         row.append(student.get("mobile", ""))
-            elif field == "Resume Link":    row.append(student.get("resume_url", ""))
-            elif field == "Active Backlogs":row.append(student.get("active_backlogs", 0))
-            elif field == "Total Backlogs": row.append(student.get("total_backlogs", 0))
-            elif field == "Skills":         row.append(", ".join(student.get("skills", [])))
-            elif field == "Department":     row.append(student.get("department_name", ""))
-            elif field == "Program":        row.append(student.get("program_name", ""))
-            elif field == "Status":         row.append(app.get("status", ""))
-            elif field == "CTC Offered":    row.append(app.get("ctc_offered", ""))
-            elif field == "Offer Letter":   row.append(app.get("offer_letter_url", ""))
-            else: row.append("")
+        for raw_field in payload.fields:
+            nf = normalize_field(raw_field)
+            
+            if nf in ["name", "studentname", "fullname", "candidatename"]:
+                row.append(student.get("name", ""))
+            elif nf in ["rollnumber", "rollno", "regno", "registrationnumber"]:
+                row.append(student.get("roll_number", ""))
+            elif nf in ["personalemail", "email", "emailid", "alternateemail"] and not "institute" in nf:
+                # If they just say "email", we can prioritize institute email or just give personal. Let's give personal if they ask for personal, institute if they ask for institute.
+                if nf == "personalemail" or nf == "alternateemail":
+                    row.append(student.get("emails", {}).get("personal", ""))
+                else:
+                    # Generic "email" -> give institute email first, fallback to personal
+                    emails = student.get("emails", {})
+                    row.append(emails.get("institute") or emails.get("personal", ""))
+            elif nf in ["instituteemail", "collegeemail", "officialemail"]:
+                row.append(student.get("emails", {}).get("institute", ""))
+            elif nf in ["cgpa", "gpa", "score", "percentage"]:
+                row.append(student.get("cgpa", 0.0))
+            elif nf in ["mobile", "phone", "phonenumber", "contact", "contactno", "contactnumber"]:
+                row.append(student.get("mobile", ""))
+            elif nf in ["resumelink", "resume", "cv"]:
+                row.append(student.get("resume_url", ""))
+            elif nf in ["activebacklogs", "currentbacklogs"]:
+                row.append(student.get("active_backlogs", 0))
+            elif nf in ["totalbacklogs", "backlogs"]:
+                row.append(student.get("total_backlogs", 0))
+            elif nf in ["skills", "technologies"]:
+                row.append(", ".join(student.get("skills", [])))
+            elif nf in ["department", "branch", "stream"]:
+                row.append(student.get("department_name", ""))
+            elif nf in ["program", "degree", "course"]:
+                row.append(student.get("program_name", ""))
+            elif nf == "status":
+                row.append(app.get("status", ""))
+            elif nf in ["ctcoffered", "package"]:
+                row.append(app.get("ctc_offered", ""))
+            elif nf == "offerletter":
+                row.append(app.get("offer_letter_url", ""))
+            else:
+                row.append("") # Unknown column, leave blank
         ws.append(row)
+
 
     # Auto-fit column widths
     for column in ws.columns:

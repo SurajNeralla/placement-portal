@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const API = 'http://localhost:8000/api';
+const API = 'http://127.0.0.1:8000/api';
 
 interface NotificationsPanelProps {
   token: string;
@@ -43,7 +43,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ token })
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen(!open)} style={styles.bell} title="Notifications">
-        🔔
+        <span className="material-symbols-outlined align-middle text-[1.1em]">notifications</span>
         {unread > 0 && <span style={styles.badge}>{unread > 9 ? '9+' : unread}</span>}
       </button>
 
@@ -57,12 +57,12 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ token })
           <div style={styles.list}>
             {notifs.length === 0 ? (
               <div style={styles.empty}>
-                <span style={{ fontSize: '2rem' }}>🔕</span>
+                <span className="material-symbols-outlined align-middle text-[1.1em]">notifications_off</span>
                 <p>No notifications yet.</p>
               </div>
             ) : notifs.map(n => (
               <div key={n.id} style={{ ...styles.item, ...(n.status === 'unread' ? styles.itemUnread : {}) }}>
-                <div style={styles.itemIcon}>🚀</div>
+                <div style={styles.itemIcon}><span className="material-symbols-outlined mr-2 align-middle text-[1.1em]">rocket_launch</span></div>
                 <div style={styles.itemBody}>
                   <p style={styles.itemMsg}>{n.message}</p>
                   <span style={styles.itemTime}>{new Date(n.created_at).toLocaleString()}</span>

@@ -25,6 +25,7 @@ class TokenResponse(BaseModel):
     institution_id: str
     user_id: str
     user_name: str
+    requires_password_setup: bool = False
 
 # Academic Hierarchy Setup schemas
 class DepartmentCreate(BaseModel):

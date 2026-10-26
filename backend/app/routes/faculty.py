@@ -9,7 +9,34 @@ from app.services.security import hash_password
 
 router = APIRouter()
 
+async def get_faculty_department_id(user_id: str) -> str:
+    faculty = await db.db.users.find_one({"_id": ObjectId(user_id)})
+    if not faculty or "class_id" not in faculty:
+        raise HTTPException(status_code=400, detail="Faculty has no class assigned.")
+    cls_doc = await db.db.classes.find_one({"_id": ObjectId(faculty["class_id"])})
+    if not cls_doc or "department_id" not in cls_doc:
+        raise HTTPException(status_code=400, detail="Faculty class has no department.")
+    return str(cls_doc["department_id"])
+
+
+class FacultyStudentUpdatePayload(BaseModel):
+    name: Optional[str] = None
+    roll_number: Optional[str] = None
+    dob: Optional[str] = None
+    gender: Optional[str] = None
+    mobile: Optional[str] = None
+    institute_email: Optional[str] = None
+    personal_email: Optional[str] = None
+    cgpa: Optional[float] = None
+    active_backlogs: Optional[int] = None
+    total_backlogs: Optional[int] = None
+    skills: Optional[List[str]] = None
+    projects: Optional[List[str]] = None
+    resume_url: Optional[str] = None
+    photo_url: Optional[str] = None
+
 class FacultyRegisterPayload(BaseModel):
+
     name: str
     email: EmailStr
     password: str
@@ -56,32 +83,36 @@ async def get_pending_reviews(
     if not faculty or "class_id" not in faculty:
         raise HTTPException(status_code=400, detail="Faculty has no class assigned.")
         
-    class_id = faculty["class_id"]
+    # Fetch department for the faculty's class
+    cls_doc = await db.db.classes.find_one({"_id": ObjectId(faculty["class_id"])})
+    if not cls_doc or "department_id" not in cls_doc:
+        raise HTTPException(status_code=400, detail="Faculty class has no department.")
+    department_id = str(cls_doc["department_id"])
     
-    # 1. Fetch pending registrations (GForm submissions)
+    # 1. Fetch pending registrations (GForm submissions) for the department
     submissions_cursor = db.db.student_pending_submissions.find({
         "institution_id": institution_id,
-        "class_id": class_id,
+        "department_id": department_id,
         "status": "pending"
-    })
-    submissions = await submissions_cursor.to_list(length=100)
+    }).sort("roll_number", 1)
+    submissions = await submissions_cursor.to_list(length=10000)
     for sub in submissions:
         sub["id"] = str(sub["_id"])
         del sub["_id"]
         
-    # 2. Fetch pending profile updates
+    # 2. Fetch pending profile updates for the department
     updates_cursor = db.db.student_pending_updates.find({
         "institution_id": institution_id,
-        "class_id": class_id,
+        "department_id": department_id,
         "status": "pending"
     })
-    updates = await updates_cursor.to_list(length=100)
+    updates = await updates_cursor.to_list(length=10000)
     for upd in updates:
         upd["id"] = str(upd["_id"])
         del upd["_id"]
         
     return {
-        "class_id": class_id,
+        "department_id": department_id,
         "submissions": submissions,
         "updates": updates
     }
@@ -102,9 +133,9 @@ async def approve_submission(
         raise HTTPException(status_code=404, detail="Pending submission not found.")
         
     # Verify faculty owns this class review
-    faculty = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
-    if not faculty or faculty.get("class_id") != submission.get("class_id"):
-        raise HTTPException(status_code=403, detail="Not authorized to approve reviews outside your assigned class.")
+    department_id = await get_faculty_department_id(current_user["user_id"])
+    if submission.get("department_id") != department_id:
+        raise HTTPException(status_code=403, detail="Not authorized to approve reviews outside your assigned department.")
         
     # 1. Write to permanent students collection
     student_doc = {
@@ -115,24 +146,25 @@ async def approve_submission(
         "class_id": submission["class_id"],
         "name": submission["name"],
         "roll_number": submission["roll_number"],
-        "dob": submission["dob"],
-        "gender": submission["gender"],
-        "mobile": submission["mobile"],
+        "dob": submission.get("dob"),
+        "gender": submission.get("gender"),
+        "mobile": submission.get("mobile"),
         "emails": {
-            "institute": submission["institute_email"],
-            "personal": submission["personal_email"]
+            "institute": submission.get("institute_email"),
+            "personal": submission.get("personal_email")
         },
-        "program_name": submission["program_name"],
-        "department_name": submission["department_name"],
-        "class_name": submission["class_name"],
-        "cgpa": submission["cgpa"],
-        "active_backlogs": submission["active_backlogs"],
-        "total_backlogs": submission["total_backlogs"],
-        "education": submission["education"],
-        "skills": submission["skills"],
-        "projects": submission["projects"],
-        "resume_url": submission["resume_url"],
-        "photo_url": submission["photo_url"],
+        "program_name": submission.get("program_name"),
+        "department_name": submission.get("department_name"),
+        "class_name": submission.get("class_name"),
+        "cgpa": submission.get("cgpa", 0.0),
+        "active_backlogs": submission.get("active_backlogs", 0),
+        "total_backlogs": submission.get("total_backlogs", 0),
+        "education": submission.get("education", []),
+        "skills": submission.get("skills", []),
+        "projects": submission.get("projects", []),
+        "resume_url": submission.get("resume_url"),
+        "photo_url": submission.get("photo_url"),
+        "extra_data": submission.get("extra_data", {}),
         "status": "verified",
         "verified_at": datetime.now(timezone.utc),
         "verified_by": current_user["user_id"]
@@ -157,6 +189,35 @@ async def approve_submission(
     
     return {"message": "Student registration approved and student account created."}
 
+# Edit student registration submission before approval
+@router.put("/reviews/submissions/{submission_id}", dependencies=[Depends(RoleChecker(["Faculty"]))])
+async def edit_pending_submission(
+    submission_id: str,
+    payload: FacultyStudentUpdatePayload,
+    current_user: dict = Depends(get_current_user),
+    institution_id: str = Depends(get_tenant_id)
+):
+    submission = await db.db.student_pending_submissions.find_one({
+        "_id": ObjectId(submission_id),
+        "institution_id": institution_id
+    })
+    if not submission:
+        raise HTTPException(status_code=404, detail="Pending submission not found.")
+        
+    department_id = await get_faculty_department_id(current_user["user_id"])
+    if submission.get("department_id") != department_id:
+        raise HTTPException(status_code=403, detail="Not authorized to review this department.")
+        
+    update_data = {k: v for k, v in payload.dict(exclude_unset=True).items() if v is not None}
+    
+    if update_data:
+        await db.db.student_pending_submissions.update_one(
+            {"_id": ObjectId(submission_id)},
+            {"$set": update_data}
+        )
+    
+    return {"message": "Pending submission updated successfully."}
+
 # Reject student registration submission
 @router.post("/reviews/submissions/{submission_id}/reject", dependencies=[Depends(RoleChecker(["Faculty"]))])
 async def reject_submission(
@@ -172,9 +233,9 @@ async def reject_submission(
     if not submission:
         raise HTTPException(status_code=404, detail="Pending submission not found.")
         
-    faculty = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
-    if not faculty or faculty.get("class_id") != submission.get("class_id"):
-        raise HTTPException(status_code=403, detail="Not authorized to review this class.")
+    department_id = await get_faculty_department_id(current_user["user_id"])
+    if submission.get("department_id") != department_id:
+        raise HTTPException(status_code=403, detail="Not authorized to review this department.")
         
     # Mark as rejected
     await db.db.student_pending_submissions.update_one(
@@ -211,9 +272,9 @@ async def approve_update(
     if not update:
         raise HTTPException(status_code=404, detail="Update request not found.")
         
-    faculty = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
-    if not faculty or faculty.get("class_id") != update.get("class_id"):
-        raise HTTPException(status_code=403, detail="Not authorized to review this class.")
+    department_id = await get_faculty_department_id(current_user["user_id"])
+    if update.get("department_id") != department_id:
+        raise HTTPException(status_code=403, detail="Not authorized to review this department.")
         
     # 1. Apply edits to permanent student profile
     student_id = update["student_id"]
@@ -253,9 +314,9 @@ async def reject_update(
     if not update:
         raise HTTPException(status_code=404, detail="Update request not found.")
         
-    faculty = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
-    if not faculty or faculty.get("class_id") != update.get("class_id"):
-        raise HTTPException(status_code=403, detail="Not authorized to review this class.")
+    department_id = await get_faculty_department_id(current_user["user_id"])
+    if update.get("department_id") != department_id:
+        raise HTTPException(status_code=403, detail="Not authorized to review this department.")
         
     # Delete update request
     await db.db.student_pending_updates.delete_one({"_id": ObjectId(update_id)})
@@ -280,20 +341,15 @@ async def get_students(
     current_user: dict = Depends(get_current_user),
     institution_id: str = Depends(get_tenant_id)
 ):
-    # Get active faculty details to find their assigned class
-    faculty = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
-    if not faculty or "class_id" not in faculty:
-        raise HTTPException(status_code=400, detail="Faculty has no class assigned.")
-        
-    class_id = faculty["class_id"]
+    department_id = await get_faculty_department_id(current_user["user_id"])
     
-    # Fetch students in this class
+    # Fetch students in this department — return ALL fields including extra_data
     students_cursor = db.db.students.find({
         "institution_id": institution_id,
-        "class_id": class_id
+        "department_id": department_id
     })
     
-    students = await students_cursor.to_list(length=1000)
+    students = await students_cursor.to_list(length=10000)
     for std in students:
         std["id"] = str(std["_id"])
         del std["_id"]
@@ -303,4 +359,54 @@ async def get_students(
         if "password_hash" in std:
             del std["password_hash"]
         
-    return {"class_id": class_id, "students": students}
+    return {"department_id": department_id, "students": students}
+
+# Faculty edits student directly
+@router.put("/students/{student_id}", dependencies=[Depends(RoleChecker(["Faculty"]))])
+async def update_student_by_faculty(
+    student_id: str,
+    payload: FacultyStudentUpdatePayload,
+    current_user: dict = Depends(get_current_user),
+    institution_id: str = Depends(get_tenant_id)
+):
+    faculty = await db.db.users.find_one({"_id": ObjectId(current_user["user_id"])})
+    if not faculty or "class_id" not in faculty:
+        raise HTTPException(status_code=400, detail="Faculty has no class assigned.")
+        
+    student = await db.db.students.find_one({"_id": ObjectId(student_id), "institution_id": institution_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+        
+    if student.get("class_id") != faculty["class_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this student.")
+
+    update_data = {k: v for k, v in payload.dict(exclude_unset=True).items() if v is not None}
+    
+    if "institute_email" in update_data or "personal_email" in update_data:
+        emails = student.get("emails", {})
+        if "institute_email" in update_data:
+            emails["institute"] = update_data.pop("institute_email")
+        if "personal_email" in update_data:
+            emails["personal"] = update_data.pop("personal_email")
+        update_data["emails"] = emails
+
+    if not update_data:
+        return {"message": "No fields to update."}
+        
+    await db.db.students.update_one(
+        {"_id": ObjectId(student_id)},
+        {"$set": update_data}
+    )
+    
+    await db.db.audit_logs.insert_one({
+        "action": "faculty_edited_student",
+        "institution_id": institution_id,
+        "email": current_user["email"],
+        "user_id": current_user["user_id"],
+        "role": "Faculty",
+        "student_id": student_id,
+        "timestamp": datetime.now(timezone.utc),
+        "status": "success"
+    })
+    
+    return {"message": "Student updated successfully."}

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://127.0.0.1:8000/api';
 
 interface LoginProps {
   onLoginSuccess: (authData: {
@@ -10,9 +10,10 @@ interface LoginProps {
     userId: string;
     userName: string;
   }) => void;
+  onNavigateRegister?: () => void;
 }
 
-export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateRegister }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -137,10 +138,11 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
       if (!response.ok) throw new Error(data.detail || 'Verification failed');
 
-      if (data.role === "Student") {
+      // Check if password setup is required (first-time login for any role)
+      if (data.requires_password_setup) {
         setTempAuthData(data);
         setStep('set_password');
-        setMessage("Please set a permanent password for future logins.");
+        setMessage('Welcome! Please set a password for future logins.');
       } else {
         onLoginSuccess({
           token: data.access_token,
@@ -186,14 +188,67 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleQuickLogin = (role: string) => {
-    onLoginSuccess({
-      token: 'dummy-test-token-12345',
-      role: role,
-      institutionId: 'inst_test_123',
-      userId: `user_test_${role.toLowerCase()}`,
-      userName: `Test ${role}`,
-    });
+  const handleQuickLogin = async (role: string) => {
+    let testEmail = '';
+    let testPassword = '';
+    
+    if (role === 'Dean') {
+      testEmail = 'test@gvpcdpgc.edu.in';
+      testPassword = 'dean123';
+    } else if (role === 'TPO') {
+      testEmail = 'tpo@gvpcdpgc.edu.in';
+      testPassword = 'tpo123';
+    } else if (role === 'Faculty') {
+      testEmail = 'faculty@gvpcdpgc.edu.in';
+      testPassword = 'faculty123';
+    } else if (role === 'Student') {
+      testEmail = '5241411095@gvpcdpgc.edu.in';
+      testPassword = 'suraj2007';
+    }
+    
+    setEmail(testEmail);
+    setPassword(testPassword);
+    
+    // Attempt login if password logic exists for the role
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmail, password: testPassword, remember_me: rememberMe }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.detail && data.detail.includes("Password not set")) {
+          setMessage(`Simulating OTP request for ${testEmail}...`);
+          const otpRes = await fetch(`${API_BASE}/auth/otp/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: testEmail }),
+          });
+          if (otpRes.ok) {
+            setMessage('OTP Sent. Since this is Quick Login, please enter any digits or check your mock OTP log.');
+            setStep('otp');
+          }
+          return;
+        }
+        throw new Error(data.detail || 'Login failed');
+      }
+
+      onLoginSuccess({
+        token: data.access_token,
+        role: data.role,
+        institutionId: data.institution_id,
+        userId: data.user_id,
+        userName: data.user_name,
+      });
+    } catch (err: any) {
+      setError(`Quick Login failed: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -290,10 +345,15 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
 
-                <div className="text-center mt-sm">
+                <div className="flex justify-between items-center mt-sm px-1">
                   <button type="button" onClick={(e) => handleRequestOtp(e, false)} className="text-sm font-semibold text-primary hover:underline disabled:opacity-50" disabled={isLoading || !email}>
-                    Login with OTP instead
+                    Login with OTP
                   </button>
+                  {onNavigateRegister && (
+                    <button type="button" onClick={onNavigateRegister} className="text-sm font-semibold text-primary hover:underline disabled:opacity-50" disabled={isLoading}>
+                      New Student? Register
+                    </button>
+                  )}
                 </div>
                 
                 <div className="relative py-xs">
@@ -362,33 +422,60 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </div>
             )}
 
-            {step === 'set_password' && (
-              <form className="space-y-lg" onSubmit={handleSetPassword}>
-                <div className="space-y-md">
-                  <div className="space-y-xs">
-                    <label className="font-label-md text-label-md text-on-surface">New Password</label>
-                    <div className="relative group input-halo transition-all duration-200 rounded-lg">
-                      <input 
-                        className="w-full h-11 px-md rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-md focus:border-primary focus:ring-0 transition-colors outline-none" 
-                        placeholder="Set a strong password" 
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        disabled={isLoading}
-                        required 
-                      />
+            {step === 'set_password' && (() => {
+              const pwLen = newPassword.length;
+              const hasNum = /[0-9]/.test(newPassword);
+              const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+              let strength: 'weak' | 'fair' | 'strong' = 'weak';
+              if (pwLen >= 10 && hasSpecial) strength = 'strong';
+              else if (pwLen >= 6) strength = 'fair';
+              const strengthConfig = {
+                weak:   { color: '#EF4444', label: 'Weak',   width: '33%' },
+                fair:   { color: '#F59E0B', label: 'Fair',   width: '66%' },
+                strong: { color: '#10B981', label: 'Strong', width: '100%' },
+              };
+              const sc = strengthConfig[strength];
+              return (
+                <form className="space-y-lg" onSubmit={handleSetPassword}>
+                  <div className="space-y-md">
+                    <div className="space-y-xs">
+                      <label className="font-label-md text-label-md text-on-surface">New Password</label>
+                      <div className="relative group input-halo transition-all duration-200 rounded-lg">
+                        <input 
+                          className="w-full h-11 px-md rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-md focus:border-primary focus:ring-0 transition-colors outline-none" 
+                          placeholder="Set a strong password" 
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          disabled={isLoading}
+                          required 
+                        />
+                      </div>
+                      {newPassword.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ height: 6, background: 'rgba(0,0,0,0.08)', borderRadius: 99, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: sc.width, background: sc.color, borderRadius: 99, transition: 'all 0.35s ease' }} />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                            <span style={{ fontSize: '0.75rem', color: sc.color, fontWeight: 700 }}>{sc.label}</span>
+                            <span style={{ fontSize: '0.72rem', color: '#6B7280' }}>
+                              {strength === 'weak' ? 'Use 6+ chars' : strength === 'fair' ? 'Add special char for Strong' : '✓ Great password!'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-                <button 
-                  className="w-full h-11 bg-primary text-on-primary font-label-md text-label-md rounded-lg flex items-center justify-center btn-hover disabled:opacity-50 disabled:cursor-not-allowed" 
-                  type="submit"
-                  disabled={isLoading || !newPassword}
-                >
-                  {isLoading ? 'Saving...' : 'Save & Continue'}
-                </button>
-              </form>
-            )}
+                  <button 
+                    className="w-full h-11 bg-primary text-on-primary font-label-md text-label-md rounded-lg flex items-center justify-center btn-hover disabled:opacity-50 disabled:cursor-not-allowed" 
+                    type="submit"
+                    disabled={isLoading || newPassword.length < 6}
+                  >
+                    {isLoading ? 'Saving...' : 'Save & Continue'}
+                  </button>
+                </form>
+              );
+            })()}
 
             <footer className="pt-md border-t border-outline-variant">
               <p className="font-body-sm text-body-sm text-on-surface-variant text-center">
@@ -397,10 +484,45 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             </footer>
           </div>
 
-          <div className="mt-xl flex justify-center gap-lg">
-            <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Privacy Policy</a>
-            <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Terms of Service</a>
-            <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Help Center</a>
+          <div className="mt-xl flex flex-col items-center gap-md">
+            {/* ── Quick Login / Dev Actions ── */}
+            <div className="flex flex-wrap justify-center gap-2 mb-4 bg-surface-container-low p-3 rounded-lg border border-outline-variant">
+              <span className="text-label-sm font-semibold text-on-surface-variant mr-2 flex items-center">Quick Login:</span>
+              <button 
+                type="button"
+                onClick={() => { setEmail('dean@cbit.ac.in'); setPassword('Password123!'); }}
+                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
+              >
+                Dean
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('tpo@cbit.ac.in'); setPassword('Password123!'); }}
+                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
+              >
+                TPO
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('faculty1@cbit.ac.in'); setPassword('Password123!'); }}
+                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
+              >
+                Faculty
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('5241411095@gvpcdpgc.edu.in'); setPassword('suraj2007'); }}
+                className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-colors"
+              >
+                Student
+              </button>
+            </div>
+
+            <div className="flex justify-center gap-lg">
+              <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Privacy Policy</a>
+              <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Terms of Service</a>
+              <a className="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">Help Center</a>
+            </div>
           </div>
         </div>
       </section>

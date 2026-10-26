@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from app.db.tenant import get_current_user, get_tenant_id, RoleChecker
 from app.db.connection import db
 from app.models.schemas import OTPRequest  # reuse email schema or direct pydantic
@@ -53,6 +53,10 @@ class StudentUpdatePayload(BaseModel):
     projects: Optional[List[str]] = None
     resume_url: Optional[str] = None
     photo_url: Optional[str] = None
+    dob: Optional[str] = None
+    gender: Optional[str] = None
+    institute_email: Optional[EmailStr] = None
+    personal_email: Optional[EmailStr] = None
 
 def standardize_score(board: str, marks: Optional[float], percentage: Optional[float]):
     cgpa = None
@@ -230,7 +234,16 @@ async def request_profile_update(
         raise HTTPException(status_code=404, detail="Student profile not found.")
         
     # Get only non-null updates
-    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    update_data = {}
+    for k, v in payload.dict().items():
+        if v is not None:
+            if k == "institute_email":
+                update_data["emails.institute"] = v
+            elif k == "personal_email":
+                update_data["emails.personal"] = v
+            else:
+                update_data[k] = v
+                
     if not update_data:
         raise HTTPException(status_code=400, detail="No valid update fields provided.")
         
@@ -270,12 +283,37 @@ async def request_profile_update(
 
 @router.post("/bulk-upload", dependencies=[Depends(RoleChecker(["TPO", "Faculty", "Dean"]))])
 async def bulk_upload_students(
+    target_type: str = Form(...),
+    target_id: str = Form(...),
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
     institution_id: str = Depends(get_tenant_id)
 ):
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel file.")
+    
+    prog = None
+    target_cls = None
+    target_dept = None
+    all_depts = []
+    all_classes = []
+
+    if target_type == "class":
+        target_cls = await db.db.classes.find_one({"_id": ObjectId(target_id), "institution_id": institution_id})
+        if not target_cls:
+            raise HTTPException(status_code=404, detail="Target class not found.")
+        target_dept = await db.db.departments.find_one({"_id": ObjectId(target_cls["department_id"])})
+        prog = await db.db.programs.find_one({"_id": ObjectId(target_cls["program_id"])})
+    elif target_type == "program":
+        prog = await db.db.programs.find_one({"_id": ObjectId(target_id), "institution_id": institution_id})
+        if not prog:
+            raise HTTPException(status_code=404, detail="Target program not found.")
+        all_depts = await db.db.departments.find({"program_id": str(prog["_id"])}).to_list(length=None)
+        all_classes = await db.db.classes.find({"program_id": str(prog["_id"])}).to_list(length=None)
+        if not all_classes:
+            raise HTTPException(status_code=400, detail="No classes found in this program.")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid target type")
     
     try:
         contents = await file.read()
@@ -289,7 +327,7 @@ async def bulk_upload_students(
     # Replace NaN/NaT with None
     df = df.replace({float('nan'): None, pd.NaT: None})
 
-    students_to_insert = []
+    submissions_to_insert = []
     
     for index, row in df.iterrows():
         row_dict = row.to_dict()
@@ -304,8 +342,6 @@ async def bulk_upload_students(
         roll_number = str(row_dict.get('Roll Number', '')).strip()
         personal_email = str(row_dict.get('E mail ID ( Personal )', '')).strip().lower()
         domain_email = str(row_dict.get('Domain mail id', row_dict.get('Email Address', ''))).strip().lower()
-        department = str(row_dict.get('Department', '')).strip()
-        program = str(row_dict.get('Course', '')).strip()
         mobile = str(row_dict.get('Student Mobile Number', '')).strip()
         
         # Calculate CGPA
@@ -323,48 +359,75 @@ async def bulk_upload_students(
         # All other fields go into extra_data
         extra_data = {k: v for k, v in row_dict.items() if v is not None}
         
-        student_doc = {
+        assigned_cls = target_cls
+        assigned_dept = target_dept
+        
+        if target_type == "program":
+            dept_name = str(row_dict.get('Department', '')).strip().lower()
+            # Try to match department by name
+            matched_dept = next((d for d in all_depts if d["department_name"].lower() == dept_name), all_depts[0] if all_depts else None)
+            if matched_dept:
+                assigned_dept = matched_dept
+                # Find the first class in this department
+                matched_cls = next((c for c in all_classes if c["department_id"] == str(matched_dept["_id"])), None)
+                assigned_cls = matched_cls or all_classes[0]
+            else:
+                assigned_cls = all_classes[0]
+                assigned_dept = next((d for d in all_depts if str(d["_id"]) == assigned_cls["department_id"]), all_depts[0])
+
+        submission_doc = {
             "institution_id": institution_id,
+            "program_id": str(prog["_id"]),
+            "department_id": str(assigned_dept["_id"]),
+            "class_id": str(assigned_cls["_id"]),
             "name": name,
             "roll_number": roll_number,
-            "emails": {
-                "personal": personal_email if personal_email and personal_email != 'nan' else None,
-                "institute": domain_email if domain_email and domain_email != 'nan' else None
-            },
+            "dob": None,
+            "gender": None,
             "mobile": mobile if mobile != 'nan' else None,
-            "program_name": program if program != 'nan' else None,
-            "department_name": department if department != 'nan' else None,
+            "institute_email": domain_email if domain_email and domain_email != 'nan' else None,
+            "personal_email": personal_email if personal_email and personal_email != 'nan' else None,
+            "program_name": prog["program_name"],
+            "department_name": assigned_dept["department_name"],
+            "class_name": assigned_cls["class_name"],
             "cgpa": cgpa,
+            "active_backlogs": 0,
+            "total_backlogs": 0,
+            "education": [],
+            "skills": [],
+            "projects": [],
+            "resume_url": None,
+            "photo_url": None,
             "extra_data": extra_data,
-            "status": "verified",  # Bulk uploaded by staff is implicitly verified
+            "status": "pending",
             "created_by": current_user["user_id"],
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc)
         }
         
-        students_to_insert.append(student_doc)
+        submissions_to_insert.append(submission_doc)
 
-    if not students_to_insert:
+    if not submissions_to_insert:
         raise HTTPException(status_code=400, detail="No valid student data found in the file.")
         
-    # Upsert based on email or roll number to prevent duplicates
     inserted_count = 0
     updated_count = 0
-    for student in students_to_insert:
+    
+    for sub in submissions_to_insert:
         filter_query = {
             "institution_id": institution_id,
             "$or": [
-                {"emails.institute": student["emails"]["institute"]} if student["emails"]["institute"] else None,
-                {"emails.personal": student["emails"]["personal"]} if student["emails"]["personal"] else None,
-                {"roll_number": student["roll_number"]} if student["roll_number"] else None
+                {"institute_email": sub["institute_email"]} if sub["institute_email"] else None,
+                {"personal_email": sub["personal_email"]} if sub["personal_email"] else None,
+                {"roll_number": sub["roll_number"]} if sub["roll_number"] else None
             ]
         }
         filter_query["$or"] = [q for q in filter_query["$or"] if q is not None]
         if not filter_query["$or"]:
             filter_query.pop("$or")
-            filter_query["emails.personal"] = "INVALID_NEVER_MATCH"
+            filter_query["personal_email"] = "INVALID_NEVER_MATCH"
             
-        result = await db.db.students.update_one(filter_query, {"$set": student}, upsert=True)
+        result = await db.db.student_pending_submissions.update_one(filter_query, {"$set": sub}, upsert=True)
         if result.upserted_id:
             inserted_count += 1
         else:
@@ -372,7 +435,7 @@ async def bulk_upload_students(
             
     # Log Audit
     await db.db.audit_logs.insert_one({
-        "action": "student_bulk_upload",
+        "action": "student_bulk_upload_pending",
         "institution_id": institution_id,
         "email": current_user["email"],
         "user_id": current_user["user_id"],
@@ -383,7 +446,7 @@ async def bulk_upload_students(
     })
 
     return {
-        "message": "Bulk upload completed successfully.",
+        "message": "Bulk upload placed in pending submissions for Faculty verification.",
         "inserted": inserted_count,
         "updated": updated_count
     }

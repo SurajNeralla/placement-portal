@@ -1,17 +1,57 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 interface Props {
   token: string;
+  institutionId: string;
   onUploadSuccess: () => void;
 }
 
 const API = 'http://localhost:8000/api';
 
-export const BulkStudentUpload: React.FC<Props> = ({ token, onUploadSuccess }) => {
+export const BulkStudentUpload: React.FC<Props> = ({ token, institutionId, onUploadSuccess }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{inserted: number, updated: number} | null>(null);
+  const [hierarchy, setHierarchy] = useState<any[]>([]);
+  const [targetType, setTargetType] = useState<'class' | 'program'>('class');
+  const [selectedTarget, setSelectedTarget] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const loadHierarchy = async () => {
+      try {
+        const res = await fetch(`${API}/institutions/${institutionId}/hierarchy`);
+        if (res.ok) {
+          const data = await res.json();
+          setHierarchy(data.hierarchy || []);
+        }
+      } catch {}
+    };
+    if (institutionId) loadHierarchy();
+  }, [institutionId]);
+
+  const allClasses = hierarchy.flatMap((prog: any) =>
+    prog.departments.flatMap((dept: any) =>
+      dept.classes.map((cls: any) => ({
+        id: cls.id,
+        label: `${prog.name} → ${dept.name} → ${cls.name}`,
+      }))
+    )
+  );
+
+  const allPrograms = hierarchy.map((prog: any) => ({
+    id: prog.id,
+    label: prog.name,
+  }));
+
+  const handleUploadClick = () => {
+    if (!selectedTarget) {
+      setError(`Please select a target ${targetType} before uploading.`);
+      return;
+    }
+    setError('');
+    fileInputRef.current?.click();
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -28,77 +68,114 @@ export const BulkStudentUpload: React.FC<Props> = ({ token, onUploadSuccess }) =
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('target_type', targetType);
+    formData.append('target_id', selectedTarget);
 
     try {
       const res = await fetch(`${API}/students/bulk-upload`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
       });
-      
       const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.detail || 'Upload failed');
-      }
-
+      if (!res.ok) throw new Error(data.detail || 'Upload failed');
       setResult({ inserted: data.inserted, updated: data.updated });
       onUploadSuccess();
-      
     } catch (err: any) {
       setError(err.message);
     } finally {
       setUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   return (
-    <div className="bg-surface-container-lowest p-md rounded-xl card-shadow border border-outline-variant mt-lg">
-      <div className="flex items-center justify-between mb-sm">
-        <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-primary text-3xl">upload_file</span>
-          <div>
-            <h3 className="text-title-md font-semibold text-on-surface">Bulk Student Upload</h3>
-            <p className="text-body-sm text-on-surface-variant">Upload Google Form Excel (.xlsx) responses</p>
-          </div>
+    <div style={{
+      background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 16,
+      padding: 28, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#2563EB,#6366F1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', flexShrink: 0
+        }}>📤</div>
+        <div>
+          <h3 style={{ margin: 0, fontWeight: 700, color: '#111827', fontSize: '1rem' }}>Bulk Upload Students</h3>
+          <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#6B7280' }}>
+            Upload Google Form Excel (.xlsx) responses — students go to Faculty for verification
+          </p>
         </div>
-        
-        <input 
-          type="file" 
-          accept=".xlsx, .xls" 
-          className="hidden" 
-          ref={fileInputRef}
-          onChange={handleFileChange}
-        />
-        
-        <button 
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="btn-primary text-sm px-4 py-2 flex items-center gap-2"
-        >
-          {uploading ? (
-            <><span className="material-symbols-outlined animate-spin text-[18px]">autorenew</span> Uploading...</>
-          ) : (
-            <><span className="material-symbols-outlined text-[18px]">cloud_upload</span> Select Excel File</>
-          )}
-        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 280, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+              <input type="radio" name="targetType" checked={targetType === 'class'} onChange={() => { setTargetType('class'); setSelectedTarget(''); }} />
+              Upload to specific Class
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+              <input type="radio" name="targetType" checked={targetType === 'program'} onChange={() => { setTargetType('program'); setSelectedTarget(''); }} />
+              Upload for entire Program
+            </label>
+          </div>
+          <select
+            value={selectedTarget}
+            onChange={e => setSelectedTarget(e.target.value)}
+            style={{
+              width: '100%', background: '#F9FAFB', border: '1px solid rgba(0,0,0,0.1)',
+              borderRadius: 8, padding: '9px 12px', color: selectedTarget ? '#111827' : '#9CA3AF',
+              fontSize: '0.875rem', outline: 'none'
+            }}
+          >
+            <option value="">— Select a {targetType} —</option>
+            {targetType === 'class' ? allClasses.map(cls => (
+              <option key={cls.id} value={cls.id}>{cls.label}</option>
+            )) : allPrograms.map(prog => (
+              <option key={prog.id} value={prog.id}>{prog.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ display: 'none' }}
+            ref={fileInputRef}
+            onChange={handleFileChange}
+          />
+          <button
+            onClick={handleUploadClick}
+            disabled={uploading}
+            style={{
+              background: uploading ? '#9CA3AF' : 'linear-gradient(135deg,#2563EB,#6366F1)',
+              border: 'none', color: '#fff', padding: '10px 20px', borderRadius: 10,
+              cursor: uploading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.875rem',
+              display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap'
+            }}
+          >
+            {uploading ? '⏳ Uploading...' : '📤 Upload Excel File'}
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="mt-sm p-2 bg-error-container text-error rounded-lg text-sm flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm">error</span> {error}
+        <div style={{
+          marginTop: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.2)', color: '#DC2626', borderRadius: 8, fontSize: '0.84rem'
+        }}>
+          ⚠️ {error}
         </div>
       )}
 
       {result && (
-        <div className="mt-sm p-2 bg-green-100 text-green-700 rounded-lg text-sm flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm">check_circle</span>
-          Successfully processed {result.inserted + result.updated} students ({result.inserted} new, {result.updated} updated).
+        <div style={{
+          marginTop: 12, padding: '10px 14px', background: 'rgba(16,185,129,0.08)',
+          border: '1px solid rgba(16,185,129,0.2)', color: '#059669', borderRadius: 8, fontSize: '0.84rem'
+        }}>
+          ✅ Uploaded <strong>{result.inserted + result.updated}</strong> students to pending queue
+          ({result.inserted} new, {result.updated} updated) — awaiting Faculty verification.
         </div>
       )}
     </div>

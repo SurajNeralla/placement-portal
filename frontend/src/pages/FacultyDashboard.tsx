@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BulkStudentUpload } from '../components/BulkStudentUpload';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://127.0.0.1:8000/api';
 
 interface FacultyDashboardProps {
   token: string;
@@ -15,6 +15,128 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
   const [feedback, setFeedback] = useState<{ [key: string]: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'reviews' | 'students'>('reviews');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedSubmissions, setExpandedSubmissions] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; action: string } | null>(null);
+
+  const toggleSubmissionExpand = (id: string) => {
+    setExpandedSubmissions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  // Edit student state
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEditing = (student: any) => {
+    setEditingStudentId(student.id);
+    setEditForm({
+      name: student.name || '',
+      roll_number: student.roll_number || '',
+      mobile: student.mobile || '',
+      institute_email: student.emails?.institute || '',
+      personal_email: student.emails?.personal || '',
+      cgpa: student.cgpa || 0,
+      active_backlogs: student.active_backlogs || 0,
+      total_backlogs: student.total_backlogs || 0,
+    });
+  };
+
+  const handleEditChange = (field: string, value: any) => {
+    setEditForm((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  const saveStudentEdit = async (id: string) => {
+    setSavingEdit(true);
+    try {
+      const response = await fetch(`${API_BASE}/faculty/students/${id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: editForm.name,
+            roll_number: editForm.roll_number,
+            mobile: editForm.mobile,
+            institute_email: editForm.institute_email,
+            personal_email: editForm.personal_email,
+            cgpa: Number(editForm.cgpa),
+            active_backlogs: Number(editForm.active_backlogs),
+            total_backlogs: Number(editForm.total_backlogs)
+        })
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to update student');
+      }
+      alert('Student updated successfully');
+      setEditingStudentId(null);
+      fetchReviews(); 
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Edit pending submission state
+  const [editingSubmissionId, setEditingSubmissionId] = useState<string | null>(null);
+  const [editSubmissionForm, setEditSubmissionForm] = useState<any>({});
+  const [savingSubmissionEdit, setSavingSubmissionEdit] = useState(false);
+
+  const startEditingSubmission = (sub: any) => {
+    setEditingSubmissionId(sub.id);
+    setEditSubmissionForm({
+      name: sub.name || '',
+      roll_number: sub.roll_number || '',
+      mobile: sub.mobile || '',
+      institute_email: sub.institute_email || '',
+      personal_email: sub.personal_email || '',
+      cgpa: sub.cgpa || 0,
+      active_backlogs: sub.active_backlogs || 0,
+      total_backlogs: sub.total_backlogs || 0,
+    });
+  };
+
+  const handleSubmissionEditChange = (field: string, value: any) => {
+    setEditSubmissionForm((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  const saveSubmissionEdit = async (id: string) => {
+    setSavingSubmissionEdit(true);
+    try {
+      const response = await fetch(`${API_BASE}/faculty/reviews/submissions/${id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: editSubmissionForm.name,
+            roll_number: editSubmissionForm.roll_number,
+            mobile: editSubmissionForm.mobile,
+            institute_email: editSubmissionForm.institute_email,
+            personal_email: editSubmissionForm.personal_email,
+            cgpa: Number(editSubmissionForm.cgpa),
+            active_backlogs: Number(editSubmissionForm.active_backlogs),
+            total_backlogs: Number(editSubmissionForm.total_backlogs)
+        })
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to update submission');
+      }
+      alert('Pending submission updated successfully');
+      setEditingSubmissionId(null);
+      fetchReviews(); 
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSavingSubmissionEdit(false);
+    }
+  };
 
   useEffect(() => {
     fetchReviews();
@@ -23,6 +145,7 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
   const fetchReviews = async () => {
     setIsLoading(true);
     setError(null);
+    setSelectedIds(new Set());
     try {
       const response = await fetch(`${API_BASE}/faculty/reviews/pending`, {
         headers: {
@@ -108,6 +231,64 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
     }
   };
 
+  // ── Bulk actions ──
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === submissions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(submissions.map(s => s.id)));
+    }
+  };
+
+  const handleBulkApprove = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkProgress({ done: 0, total: ids.length, action: 'Approving' });
+    let done = 0;
+    for (const id of ids) {
+      try {
+        await fetch(`${API_BASE}/faculty/reviews/submissions/${id}/approve`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      } catch {}
+      done++;
+      setBulkProgress({ done, total: ids.length, action: 'Approving' });
+    }
+    setBulkProgress(null);
+    setSelectedIds(new Set());
+    fetchReviews();
+  };
+
+  const handleBulkReject = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkProgress({ done: 0, total: ids.length, action: 'Rejecting' });
+    let done = 0;
+    for (const id of ids) {
+      const reason = feedback[id] || 'Details could not be verified.';
+      try {
+        await fetch(`${API_BASE}/faculty/reviews/submissions/${id}/reject?feedback=${encodeURIComponent(reason)}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      } catch {}
+      done++;
+      setBulkProgress({ done, total: ids.length, action: 'Rejecting' });
+    }
+    setBulkProgress(null);
+    setSelectedIds(new Set());
+    fetchReviews();
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -120,21 +301,28 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
         </button>
       </div>
 
-      <div className="mb-md">
-        <BulkStudentUpload token={token} onUploadSuccess={fetchReviews} />
-      </div>
-
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        <button 
-          onClick={() => setTab('reviews')} 
-          style={{ ...styles.tabBtn, ...(tab === 'reviews' ? styles.tabActive : {}) }}>
-          Pending Reviews ({submissions.length + updates.length})
-        </button>
-        <button 
-          onClick={() => setTab('students')} 
-          style={{ ...styles.tabBtn, ...(tab === 'students' ? styles.tabActive : {}) }}>
-          Enrolled Students ({enrolledStudents.length})
-        </button>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            onClick={() => setTab('reviews')} 
+            style={{ ...styles.tabBtn, ...(tab === 'reviews' ? styles.tabActive : {}) }}>
+            Pending Reviews ({submissions.length + updates.length})
+          </button>
+          <button 
+            onClick={() => setTab('students')} 
+            style={{ ...styles.tabBtn, ...(tab === 'students' ? styles.tabActive : {}) }}>
+            Enrolled Students ({enrolledStudents.length})
+          </button>
+        </div>
+        <div>
+          <input 
+            type="text" 
+            placeholder="Search by Roll No or Name..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)', width: '250px' }}
+          />
+        </div>
       </div>
 
       {tab === 'reviews' && (
@@ -172,29 +360,59 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
           <div style={styles.column}>
             <div style={styles.colHeader}>
               <h3>New Student Submissions ({submissions.length})</h3>
-              <span style={styles.badge}>Google Form Inbox</span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {submissions.length > 0 && (
+                  <button
+                    onClick={toggleSelectAll}
+                    style={{ background: selectedIds.size === submissions.length ? 'rgba(16,185,129,0.15)' : 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.1)', color: selectedIds.size === submissions.length ? '#059669' : '#6B7280', padding: '4px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}
+                  >
+                    {selectedIds.size === submissions.length ? '☑ Deselect All' : '☐ Select All'}
+                  </button>
+                )}
+                <span style={styles.badge}>Google Form Inbox</span>
+              </div>
             </div>
             
-            {submissions.length === 0 ? (
-              <div style={styles.emptyState}>No new student registrations to verify.</div>
+            {submissions.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).length === 0 ? (
+              <div style={styles.emptyState}>No new student registrations match your search.</div>
             ) : (
               <div style={styles.cardList}>
-                {submissions.map((sub) => (
-                  <div key={sub.id} className="glass-card animate-fade-in" style={styles.reviewCard}>
+                {submissions.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).map((sub) => (
+                  <div key={sub.id} className="glass-card animate-fade-in" style={{ ...styles.reviewCard, outline: selectedIds.has(sub.id) ? '2px solid #10B981' : 'none', outlineOffset: -2 }}>
+                    {/* Selection checkbox */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(sub.id)}
+                        onChange={() => toggleSelect(sub.id)}
+                        style={{ width: 16, height: 16, accentColor: '#10B981', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.75rem', color: '#6B7280', fontWeight: 600 }}>Select for bulk action</span>
+                    </label>
                     <div style={styles.cardTop}>
                       <div>
                         <h4 style={styles.studentName}>{sub.name}</h4>
                         <span style={styles.rollNo}>Roll: {sub.roll_number} ({sub.class_name})</span>
                       </div>
-                      {sub.photo_url && (
-                        <img src={sub.photo_url} alt="Profile" style={styles.profileThumb} />
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        {sub.photo_url && (
+                          <img src={sub.photo_url} alt="Profile" style={styles.profileThumb} />
+                        )}
+                        <button 
+                          onClick={() => toggleSubmissionExpand(sub.id)} 
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#6B7280', padding: 4 }}
+                          title="Toggle Details"
+                        >
+                          {expandedSubmissions.has(sub.id) ? '▲' : '▼'}
+                        </button>
+                      </div>
                     </div>
 
-                    <div style={styles.studentDetails}>
+                    {expandedSubmissions.has(sub.id) && (
+                      <>
+                        <div style={styles.studentDetails}>
                       <p><strong>CGPA:</strong> {sub.cgpa} | <strong>Backlogs:</strong> {sub.active_backlogs} active ({sub.total_backlogs} total)</p>
-                      <p><strong>Email:</strong> {sub.institute_email}</p>
-                      <p><strong>Mobile:</strong> {sub.mobile}</p>
+                      <p><strong>Email:</strong> {sub.institute_email} | <strong>Mobile:</strong> {sub.mobile}</p>
                       <p>
                         <strong>Resume: </strong>
                         {sub.resume_url ? (
@@ -204,6 +422,59 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
                         ) : 'Not uploaded'}
                       </p>
                     </div>
+
+                    {/* All Form Data from Excel */}
+                    {sub.extra_data && Object.keys(sub.extra_data).length > 0 && (
+                      <div style={{ background: '#F9FAFB', border: '1px solid rgba(0,0,0,0.06)', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
+                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>📋 All Google Form Data</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px 20px' }}>
+                          {Object.entries(sub.extra_data).map(([key, val]: [string, any]) => (
+                            <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              <span style={{ fontSize: '0.71rem', color: '#6B7280', fontWeight: 600 }}>{key}:</span>
+                              <span style={{ fontSize: '0.75rem', color: '#374151', overflowWrap: 'break-word' }}>{String(val ?? '—')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    </>
+                    )}
+
+                    {editingSubmissionId === sub.id && (
+                      <div style={{ marginTop: 12, background: '#fff', padding: 16, borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#111827' }}>Edit Pending Submission</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Name</label>
+                              <input type="text" value={editSubmissionForm.name} onChange={e => handleSubmissionEditChange('name', e.target.value)} style={styles.feedbackInput} />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Roll No</label>
+                              <input type="text" value={editSubmissionForm.roll_number} onChange={e => handleSubmissionEditChange('roll_number', e.target.value)} style={styles.feedbackInput} />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Institute Email</label>
+                              <input type="text" value={editSubmissionForm.institute_email} onChange={e => handleSubmissionEditChange('institute_email', e.target.value)} style={styles.feedbackInput} />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Mobile</label>
+                              <input type="text" value={editSubmissionForm.mobile} onChange={e => handleSubmissionEditChange('mobile', e.target.value)} style={styles.feedbackInput} />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>CGPA</label>
+                              <input type="number" step="0.01" value={editSubmissionForm.cgpa} onChange={e => handleSubmissionEditChange('cgpa', e.target.value)} style={styles.feedbackInput} />
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                          <button onClick={() => saveSubmissionEdit(sub.id)} disabled={savingSubmissionEdit} className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                            {savingSubmissionEdit ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button onClick={() => setEditingSubmissionId(null)} disabled={savingSubmissionEdit} style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: 6, cursor: 'pointer' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <div style={styles.feedbackInputRow}>
                       <input 
@@ -218,6 +489,9 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
                     <div style={styles.cardActions}>
                       <button onClick={() => handleRejectSubmission(sub.id)} style={styles.rejectBtn}>
                         Reject
+                      </button>
+                      <button onClick={() => startEditingSubmission(sub)} style={{...styles.rejectBtn, background: 'none', border: '1px solid #D1D5DB', color: '#4B5563'}}>
+                        Edit
                       </button>
                       <button onClick={() => handleApproveSubmission(sub.id)} className="btn-primary" style={styles.approveBtn}>
                         Verify & Approve
@@ -236,11 +510,11 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
               <span style={styles.badge}>Student Edits Queue</span>
             </div>
 
-            {updates.length === 0 ? (
-              <div style={styles.emptyState}>No pending profile changes.</div>
+            {updates.filter(u => (u.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (u.student_name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).length === 0 ? (
+              <div style={styles.emptyState}>No pending profile changes match your search.</div>
             ) : (
               <div style={styles.cardList}>
-                {updates.map((upd) => (
+                {updates.filter(u => (u.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (u.student_name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).map((upd) => (
                   <div key={upd.id} className="glass-card animate-fade-in" style={styles.reviewCard}>
                     <div style={styles.cardTop}>
                       <div>
@@ -298,32 +572,175 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token }) => 
     )}
 
       {tab === 'students' && (
-        <div style={styles.cardList}>
-          {enrolledStudents.length === 0 ? (
-            <div style={styles.emptyState}>No enrolled students found for your class.</div>
+        <div>
+          {enrolledStudents.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).length === 0 ? (
+            <div style={styles.emptyState}>No enrolled students match your search.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', background: '#FFFFFF', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-              <thead>
-                <tr style={{ background: '#F9FAFB', borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.8rem', color: '#6B7280', textTransform: 'uppercase' }}>Name</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.8rem', color: '#6B7280', textTransform: 'uppercase' }}>Roll No</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.8rem', color: '#6B7280', textTransform: 'uppercase' }}>Email</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.8rem', color: '#6B7280', textTransform: 'uppercase' }}>Mobile</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.8rem', color: '#6B7280', textTransform: 'uppercase' }}>Password</th>
-                </tr>
-              </thead>
-              <tbody>
-                {enrolledStudents.map(student => (
-                  <tr key={student.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-                    <td style={{ padding: '12px 16px', fontSize: '0.9rem', fontWeight: 600, color: '#111827' }}>{student.name}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '0.9rem', color: '#4B5563' }}>{student.roll_number}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '0.9rem', color: '#4B5563' }}>{student.emails?.institute || student.emails?.personal || 'N/A'}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '0.9rem', color: '#4B5563' }}>{student.mobile || 'N/A'}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '0.9rem', color: '#EF4444', fontFamily: 'monospace', fontWeight: 700 }}>{student.password_plain || 'Not Set'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div>
+              {enrolledStudents.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).map(student => (
+                <div key={student.id} style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
+                  {/* Summary row */}
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', cursor: 'pointer' }}
+                    onClick={() => setExpandedStudent(expandedStudent === student.id ? null : student.id)}
+                  >
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg,#10B981,#059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1rem', flexShrink: 0 }}>
+                      {(student.name || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.95rem' }}>{student.name}</div>
+                      <div style={{ color: '#6B7280', fontSize: '0.78rem', marginTop: 2 }}>
+                        {student.roll_number} · {student.emails?.institute || student.emails?.personal || ''} · {student.mobile || ''}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <span style={{ fontWeight: 800, color: student.cgpa >= 8 ? '#10B981' : student.cgpa >= 6 ? '#F59E0B' : '#EF4444' }}>{student.cgpa || '—'}</span>
+                      <span style={{ fontSize: '0.72rem', color: '#6B7280' }}>CGPA</span>
+                      {student.password_plain && student.password_plain !== 'Not Set' && (
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#EF4444', fontSize: '0.82rem', background: 'rgba(239,68,68,0.08)', padding: '2px 8px', borderRadius: 6 }}>
+                          🔑 {student.password_plain}
+                        </span>
+                      )}
+                      <span style={{ color: '#9CA3AF', fontSize: '1rem' }}>{expandedStudent === student.id ? '▲' : '▼'}</span>
+                    </div>
+                  </div>
+                  {/* Expanded details */}
+                  {expandedStudent === student.id && (
+                    <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '20px', background: '#F9FAFB' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px 24px', marginBottom: 16 }}>
+                        {[
+                          { label: 'Full Name', val: student.name },
+                          { label: 'Roll Number', val: student.roll_number },
+                          { label: 'Institute Email', val: student.emails?.institute },
+                          { label: 'Personal Email', val: student.emails?.personal },
+                          { label: 'Mobile', val: student.mobile },
+                          { label: 'Program', val: student.program_name },
+                          { label: 'Department', val: student.department_name },
+                          { label: 'Class', val: student.class_name },
+                          { label: 'CGPA', val: student.cgpa },
+                          { label: 'Active Backlogs', val: student.active_backlogs },
+                          { label: 'Total Backlogs', val: student.total_backlogs },
+                        ].map(({ label, val }) => (
+                          <div key={label}>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                            <div style={{ fontSize: '0.875rem', color: '#111827', fontWeight: 500, marginTop: 2 }}>{val ?? '—'}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {student.extra_data && Object.keys(student.extra_data).length > 0 && (
+                        <div style={{ marginTop: 16 }}>
+                          <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>📋 All Form Data</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px 24px' }}>
+                            {Object.entries(student.extra_data).map(([key, val]: [string, any]) => (
+                              <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <span style={{ fontSize: '0.73rem', color: '#6B7280', fontWeight: 600 }}>{key}:</span>
+                                <span style={{ fontSize: '0.75rem', color: '#374151', overflowWrap: 'break-word' }}>{String(val ?? '—')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: 16, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 16 }}>
+                        <button onClick={() => startEditing(student)} className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+                          ✏️ Edit Student
+                        </button>
+                      </div>
+
+                      {editingStudentId === student.id && (
+                        <div style={{ marginTop: 20, background: '#fff', padding: 20, borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)' }}>
+                          <h4 style={{ margin: '0 0 16px 0' }}>Edit Student Details</h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Name</label>
+                                <input type="text" value={editForm.name} onChange={e => handleEditChange('name', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Roll Number</label>
+                                <input type="text" value={editForm.roll_number} onChange={e => handleEditChange('roll_number', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Mobile</label>
+                                <input type="text" value={editForm.mobile} onChange={e => handleEditChange('mobile', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Institute Email</label>
+                                <input type="email" value={editForm.institute_email} onChange={e => handleEditChange('institute_email', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Personal Email</label>
+                                <input type="email" value={editForm.personal_email} onChange={e => handleEditChange('personal_email', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>CGPA</label>
+                                <input type="number" step="0.01" value={editForm.cgpa} onChange={e => handleEditChange('cgpa', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Active Backlogs</label>
+                                <input type="number" value={editForm.active_backlogs} onChange={e => handleEditChange('active_backlogs', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Total Backlogs</label>
+                                <input type="number" value={editForm.total_backlogs} onChange={e => handleEditChange('total_backlogs', e.target.value)} style={styles.feedbackInput} />
+                            </div>
+                          </div>
+                          <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
+                            <button onClick={() => saveStudentEdit(student.id)} disabled={savingEdit} className="btn-primary" style={{ padding: '8px 20px' }}>
+                                {savingEdit ? 'Saving...' : 'Save Changes'}
+                            </button>
+                            <button onClick={() => setEditingStudentId(null)} style={styles.rejectBtn}>
+                                Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Floating Bulk Action Bar ── */}
+      {tab === 'reviews' && selectedIds.size > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+          background: '#1F2937', color: '#F9FAFB', borderRadius: 16,
+          padding: '14px 28px', display: 'flex', alignItems: 'center', gap: 20,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 1000,
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          {bulkProgress ? (
+            <>
+              <div style={{ width: 200, background: 'rgba(255,255,255,0.1)', borderRadius: 99, height: 8, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(bulkProgress.done / bulkProgress.total) * 100}%`, background: bulkProgress.action === 'Approving' ? '#10B981' : '#EF4444', borderRadius: 99, transition: 'width 0.3s' }} />
+              </div>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{bulkProgress.action}… {bulkProgress.done}/{bulkProgress.total}</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{selectedIds.size} selected</span>
+              <button
+                onClick={handleBulkApprove}
+                style={{ background: '#10B981', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}
+              >
+                ✓ Approve All Selected
+              </button>
+              <button
+                onClick={handleBulkReject}
+                style={{ background: '#EF4444', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}
+              >
+                ✗ Reject All Selected
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#9CA3AF', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: '0.82rem' }}
+              >
+                Cancel
+              </button>
+            </>
           )}
         </div>
       )}

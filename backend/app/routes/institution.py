@@ -111,6 +111,16 @@ async def onboard_institution(payload: InstitutionOnboardRequest):
         "dean_id": dean_id
     }
 
+@router.get("/public/hierarchy")
+async def get_public_hierarchy():
+    # Fetch the first institution (assuming single-tenant or default tenant for public registration)
+    institution = await db.db.institutions.find_one({})
+    if not institution:
+        raise HTTPException(status_code=404, detail="No institution found.")
+        
+    institution_id = str(institution["_id"])
+    return await get_institution_hierarchy(institution_id)
+
 @router.get("/{institution_id}/hierarchy")
 async def get_institution_hierarchy(institution_id: str):
     # Fetch programs, departments, and classes for this institution

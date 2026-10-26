@@ -6,9 +6,10 @@ const API = 'http://localhost:8000/api';
 interface TpoDashboardProps {
   token: string;
   institutionId: string;
+  userId?: string;
 }
 
-type Tab = 'drives' | 'create' | 'applicants' | 'export' | 'upload' | 'faculty';
+type Tab = 'drives' | 'create' | 'applicants' | 'export' | 'upload' | 'faculty' | 'students';
 
 const STATUS_OPTS = ['Applied', 'Shortlisted', 'On-Hold', 'Rejected', 'Placed'];
 const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
@@ -41,8 +42,14 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
   const [loading, setLoading] = useState(false);
   const [appsLoading, setAppsLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
-  const [facultyForm, setFacultyForm] = useState({ name: '', email: '', password: '', phone: '', class_id: '' });
+  const [facultyForm, setFacultyForm] = useState({ name: '', email: '', phone: '', class_id: '' });
+  const [students, setStudents] = useState<any[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
+  const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
   const [exportDriveId, setExportDriveId] = useState('');
+  const [exportStatus, setExportStatus] = useState('Shortlisted');
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [exportFields, setExportFields] = useState<string[]>(['Name', 'Roll Number', 'Institute Email', 'CGPA', 'Mobile', 'Skills', 'Resume Link', 'Status']);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -67,6 +74,16 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
   }, [institutionId]);
 
   useEffect(() => { loadDrives(); loadHierarchy(); }, [loadDrives, loadHierarchy]);
+
+  const loadStudents = useCallback(async () => {
+    setStudentsLoading(true);
+    try {
+      const res = await fetch(`${API}/tpo/students`, { headers: h });
+      if (res.ok) setStudents(await res.json());
+    } finally { setStudentsLoading(false); }
+  }, [token]);
+
+  useEffect(() => { if (tab === 'students') loadStudents(); }, [tab, loadStudents]);
 
   const loadApplicants = async (driveId: string) => {
     setAppsLoading(true);
@@ -118,17 +135,48 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
       drive_deadline: new Date(form.deadline).toISOString(),
       allowed_departments: form.allowedDepts, allowed_programs: form.allowedProgs,
     };
-    const res = await fetch(`${API}/drives/create`, { method: 'POST', headers: h, body: JSON.stringify(body) });
+    const isEdit = !!editingDriveId;
+    const url = isEdit ? `${API}/drives/${editingDriveId}` : `${API}/drives/create`;
+    const method = isEdit ? 'PUT' : 'POST';
+    const res = await fetch(url, { method, headers: h, body: JSON.stringify(body) });
     if (res.ok) {
       const d = await res.json();
-      flash(`✅ Drive published! ${d.eligible_students_notified} student(s) notified via email.`);
+      flash(isEdit ? `✅ Drive updated successfully!` : `✅ Drive published! ${d.eligible_students_notified || 0} student(s) notified.`);
       setForm({ ...EMPTY_FORM });
+      setEditingDriveId(null);
       setTab('drives');
       loadDrives();
     } else {
       const d = await res.json();
-      flash(d.detail || 'Failed to create drive.', false);
+      flash(d.detail || (isEdit ? 'Failed to update drive.' : 'Failed to create drive.'), false);
     }
+  };
+
+  const startEdit = (drive: any) => {
+    setForm({
+      companyName: drive.company_name,
+      jobRole: drive.job_role,
+      package: drive.package,
+      location: drive.location,
+      mode: drive.mode,
+      minCgpa: drive.min_cgpa,
+      maxBacklogs: drive.max_backlogs,
+      genderFilter: drive.gender_filter || 'All',
+      passoutYear: drive.passout_year || new Date().getFullYear(),
+      externalLink: drive.external_apply_link || '',
+      deadline: new Date(drive.drive_deadline).toISOString().slice(0, 16),
+      allowedDepts: drive.allowed_departments || [],
+      allowedProgs: drive.allowed_programs || [],
+    });
+    setEditingDriveId(drive.id);
+    setTab('create');
+  };
+
+  const deleteDrive = async (driveId: string) => {
+    if (!window.confirm("Are you sure you want to delete this drive? All related applications will be deleted permanently.")) return;
+    const res = await fetch(`${API}/drives/${driveId}`, { method: 'DELETE', headers: h });
+    if (res.ok) { flash('✅ Drive deleted successfully!'); loadDrives(); }
+    else flash('Failed to delete drive.', false);
   };
 
   const createFaculty = async (e: React.FormEvent) => {
@@ -142,8 +190,8 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to register Faculty');
-      flash('✅ Faculty registered successfully!');
-      setFacultyForm({ name: '', email: '', password: '', phone: '', class_id: '' });
+      flash(`✅ Faculty registered! They can now login via OTP to set their password.`);
+      setFacultyForm({ name: '', email: '', phone: '', class_id: '' });
     } catch (err: any) {
       flash(err.message, false);
     } finally {
@@ -151,10 +199,35 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
     }
   };
 
+
+
+  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingTemplate(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API}/tpo/parse-template`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to parse template');
+      setExportFields(data.headers);
+      flash(`Template parsed! Found ${data.headers.length} columns.`);
+    } catch (err: any) {
+      flash(err.message, false);
+    } finally {
+      setUploadingTemplate(false);
+    }
+  };
+
   const exportExcel = async () => {
     if (!exportDriveId) { flash('Select a drive.', false); return; }
     const res = await fetch(`${API}/tpo/drives/${exportDriveId}/export`, {
-      method: 'POST', headers: h, body: JSON.stringify({ fields: exportFields }),
+      method: 'POST', headers: h, body: JSON.stringify({ fields: exportFields, status_filter: exportStatus || null }),
     });
     if (res.ok) {
       const blob = await res.blob();
@@ -221,7 +294,7 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
             <span style={{ fontSize: '3.5rem' }}>🚀</span>
             <p style={{ fontSize: '1rem', color: '#E5E7EB' }}>No placement drives yet.</p>
             <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>Create your first drive and eligible students will be notified automatically.</p>
-            <button onClick={() => setTab('create')} style={s.primaryBtn}>Create Drive →</button>
+            <button onClick={() => { setForm({...EMPTY_FORM}); setEditingDriveId(null); setTab('create'); }} style={s.primaryBtn}>Create Drive →</button>
           </div>
         ) : (
           <div style={s.driveGrid}>
@@ -257,9 +330,17 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
                   <span style={{ color: '#6B7280', fontSize: '0.8rem' }}>
                     📅 {new Date(d.drive_deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
-                  <button onClick={() => openApplicants(d)} style={s.appsBtn}>
-                    View Applicants →
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => startEdit(d)} style={{ ...s.appsBtn, background: '#EFF6FF', color: '#3B82F6', flex: 'none', padding: '12px' }} title="Edit Drive">
+                      ✏️
+                    </button>
+                    <button onClick={() => deleteDrive(d.id)} style={{ ...s.appsBtn, background: '#FEF2F2', color: '#EF4444', flex: 'none', padding: '12px' }} title="Delete Drive">
+                      🗑️
+                    </button>
+                    <button onClick={() => openApplicants(d)} style={{ ...s.appsBtn, flex: 1 }}>
+                      View Applicants →
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -270,14 +351,113 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
       {/* ── BULK UPLOAD ── */}
       {tab === 'upload' && (
         <div className="animate-fade-in">
-          <BulkStudentUpload token={token} onUploadSuccess={() => flash('Students bulk uploaded successfully!')} />
+          <BulkStudentUpload token={token} institutionId={institutionId} onUploadSuccess={() => flash('Students uploaded to pending queue for Faculty verification!')} />
         </div>
       )}
 
-      {/* ── CREATE DRIVE ── */}
+      {/* ── STUDENTS ── */}
+      {tab === 'students' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#111827', fontSize: '1.1rem', fontWeight: 700 }}>All Students</h3>
+              <p style={{ margin: '4px 0 0', color: '#6B7280', fontSize: '0.8rem' }}>{students.length} total students in your institution</p>
+            </div>
+            <input
+              type="text"
+              placeholder="🔍 Search name, roll, email..."
+              value={studentSearch}
+              onChange={e => setStudentSearch(e.target.value)}
+              style={{ ...s.input, width: 280 }}
+            />
+          </div>
+          {studentsLoading ? <Loader color="#2563EB" /> : (
+            <div style={{ overflowX: 'auto' }}>
+              {students
+                .filter(st => {
+                  const q = studentSearch.toLowerCase();
+                  return !q || (st.name||'').toLowerCase().includes(q) ||
+                    (st.roll_number||'').toLowerCase().includes(q) ||
+                    (st.emails?.institute||'').toLowerCase().includes(q) ||
+                    (st.emails?.personal||'').toLowerCase().includes(q);
+                })
+                .map(st => (
+                  <div key={st.id} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
+                    {/* Summary Row */}
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', cursor: 'pointer' }}
+                      onClick={() => setExpandedStudent(expandedStudent === st.id ? null : st.id)}
+                    >
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg,#2563EB,#6366F1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1rem', flexShrink: 0 }}>
+                        {(st.name || '?').charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.95rem' }}>{st.name}</div>
+                        <div style={{ color: '#6B7280', fontSize: '0.78rem', marginTop: 2 }}>
+                          {st.roll_number} · {st.department_name || st.program_name || ''} · {st.emails?.institute || st.emails?.personal || ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <span style={{ fontWeight: 800, fontSize: '1rem', color: st.cgpa >= 8 ? '#10B981' : st.cgpa >= 6 ? '#F59E0B' : '#EF4444' }}>{st.cgpa || '—'}</span>
+                        <span style={{ fontSize: '0.7rem', color: '#6B7280' }}>CGPA</span>
+                        <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: st.status === 'verified' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', color: st.status === 'verified' ? '#059669' : '#D97706' }}>
+                          {st.status || 'pending'}
+                        </span>
+                        <span style={{ color: '#9CA3AF', fontSize: '1rem' }}>{expandedStudent === st.id ? '▲' : '▼'}</span>
+                      </div>
+                    </div>
+                    {/* Expanded Details */}
+                    {expandedStudent === st.id && (
+                      <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '20px', background: '#F9FAFB' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px 24px', marginBottom: 16 }}>
+                          {[
+                            { label: 'Full Name', val: st.name },
+                            { label: 'Roll Number', val: st.roll_number },
+                            { label: 'Institute Email', val: st.emails?.institute },
+                            { label: 'Personal Email', val: st.emails?.personal },
+                            { label: 'Mobile', val: st.mobile },
+                            { label: 'Program', val: st.program_name },
+                            { label: 'Department', val: st.department_name },
+                            { label: 'CGPA', val: st.cgpa },
+                          ].map(({ label, val }) => (
+                            <div key={label}>
+                              <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                              <div style={{ fontSize: '0.88rem', color: '#111827', fontWeight: 500, marginTop: 2 }}>{val || '—'}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Raw Excel Data */}
+                        {st.extra_data && Object.keys(st.extra_data).length > 0 && (
+                          <div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>📋 All Form Data</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px 24px' }}>
+                              {Object.entries(st.extra_data).map(([key, val]: [string, any]) => (
+                                <div key={key} style={{ display: 'flex', gap: 8 }}>
+                                  <span style={{ fontSize: '0.75rem', color: '#6B7280', fontWeight: 600, flexShrink: 0, minWidth: 120 }}>{key}:</span>
+                                  <span style={{ fontSize: '0.75rem', color: '#374151', wordBreak: 'break-all' }}>{String(val ?? '—')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── CREATE / EDIT DRIVE ── */}
       {tab === 'create' && (
         <div style={s.formCard}>
-          <h3 style={s.formTitle}>Create New Placement Drive</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h3 style={s.formTitle}>{editingDriveId ? 'Edit Placement Drive' : 'Create New Placement Drive'}</h3>
+            {editingDriveId && (
+              <button onClick={() => { setForm({...EMPTY_FORM}); setEditingDriveId(null); setTab('drives'); }} style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', fontSize: '0.9rem', textDecoration: 'underline' }}>Cancel Edit</button>
+            )}
+          </div>
           <div style={s.formGrid}>
             {[
               { label: 'Company Name *', key: 'companyName', placeholder: 'e.g. Google' },
@@ -451,18 +631,75 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
               {drives.map(d => <option key={d.id} value={d.id}>{d.company_name} – {d.job_role}</option>)}
             </select>
           </label>
+
+          <label style={{...s.label, marginTop: 16}}>Export Filter (Application Status)
+            <select style={s.input} value={exportStatus} onChange={e => setExportStatus(e.target.value)}>
+              <option value="">All Applications</option>
+              {STATUS_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+
+          <div style={{ marginTop: 24, marginBottom: 16, padding: 16, background: 'rgba(59, 130, 246, 0.05)', border: '1px dashed rgba(59, 130, 246, 0.3)', borderRadius: 8 }}>
+            <label style={{ ...s.label, marginBottom: 8, color: '#3B82F6' }}>📂 Upload HR Template (Auto-map columns)</label>
+            <input type="file" accept=".xlsx, .xls" onChange={handleTemplateUpload} disabled={uploadingTemplate} style={{ color: '#E5E7EB' }} />
+            {uploadingTemplate && <span style={{ marginLeft: 12, color: '#9CA3AF', fontSize: '0.85rem' }}>Parsing...</span>}
+          </div>
+
           <div style={s.sectionLabel}>Columns to export</div>
           <div style={s.chips}>
-            {ALL_EXPORT_FIELDS.map(f => (
-              <label key={f} style={{ ...s.chipLabel, ...(exportFields.includes(f) ? s.chipActive : {}) }}>
-                <input type="checkbox" style={{ display: 'none' }} checked={exportFields.includes(f)} onChange={() => toggleExportField(f)}/>
-                {f}
+            {exportFields.map(f => (
+              <label key={f} style={{ ...s.chipLabel, ...s.chipActive }}>
+                {f} <button onClick={() => toggleExportField(f)} style={{ background: 'transparent', border: 'none', color: '#FFF', marginLeft: 6, cursor: 'pointer', outline: 'none' }}>×</button>
+              </label>
+            ))}
+            {/* Show remaining known fields as inactive chips to allow manual selection */}
+            {ALL_EXPORT_FIELDS.filter(f => !exportFields.includes(f)).map(f => (
+              <label key={f} style={s.chipLabel}>
+                <input type="checkbox" style={{ display: 'none' }} onChange={() => toggleExportField(f)} />
+                + {f}
               </label>
             ))}
           </div>
-          <button onClick={exportExcel} style={{ ...s.primaryBtn, marginTop: 8, background: 'linear-gradient(135deg,#10B981,#059669)' }}>
+          <button onClick={exportExcel} style={{ ...s.primaryBtn, marginTop: 24, background: 'linear-gradient(135deg,#10B981,#059669)' }}>
             ⬇ Download Excel Report (.xlsx)
           </button>
+        </div>
+      )}
+
+      {tab === 'faculty' && (
+        <div style={s.formCard} className="animate-fade-in">
+          <h2 style={s.formTitle}>Appoint Faculty Coordinator</h2>
+          <p style={{ fontSize: '0.82rem', color: '#6B7280', marginBottom: 20 }}>
+            The Faculty member will receive an OTP to set their own password on first login — no password needed here.
+          </p>
+          <form onSubmit={createFaculty}>
+            <div style={s.formGrid}>
+              <label style={s.label}>
+                Full Name
+                <input required type="text" style={s.input} value={facultyForm.name} onChange={e => setFacultyForm({...facultyForm, name: e.target.value})} placeholder="Prof. Sharma" />
+              </label>
+              <label style={s.label}>
+                Email Address
+                <input required type="email" style={s.input} value={facultyForm.email} onChange={e => setFacultyForm({...facultyForm, email: e.target.value})} placeholder="sharma@institute.edu" />
+              </label>
+              <label style={s.label}>
+                Phone Number (Optional)
+                <input type="tel" style={s.input} value={facultyForm.phone} onChange={e => setFacultyForm({...facultyForm, phone: e.target.value})} placeholder="+91 9876543210" />
+              </label>
+              <label style={s.label}>
+                Assign Class
+                <select required style={s.input} value={facultyForm.class_id} onChange={e => setFacultyForm({...facultyForm, class_id: e.target.value})}>
+                  <option value="">— Select Class —</option>
+                  {hierarchy.flatMap(p => p.departments).flatMap((d: any) => d.classes).map((c: any) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button type="submit" style={{ ...s.primaryBtn, width: '100%' }} disabled={loading}>
+              {loading ? 'Appointing...' : '✅ Appoint Faculty (OTP Login on First Use)'}
+            </button>
+          </form>
         </div>
       )}
 
