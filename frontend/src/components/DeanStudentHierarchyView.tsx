@@ -19,7 +19,6 @@ import {
   FileSpreadsheetIcon,
   GraduationCapIcon,
   SchoolIcon,
-  UsersIcon,
 } from './Icons';
 
 interface DeanStudentHierarchyViewProps {

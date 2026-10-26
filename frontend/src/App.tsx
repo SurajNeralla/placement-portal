@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Login } from './pages/Login';
 import { Onboarding } from './pages/Onboarding';
 import { DeanDashboard } from './pages/DeanDashboard';
@@ -438,7 +438,3 @@ export default function App() {
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  switchViewLink: { marginTop: 24, color: 'var(--text-secondary)', fontSize: '0.95rem', fontWeight: 500, textAlign: 'center' },
-  linkButton: { background: 'none', border: 'none', color: '#4F46E5', fontWeight: 600, cursor: 'pointer', marginLeft: 4 },
-};
