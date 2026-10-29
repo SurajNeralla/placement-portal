@@ -463,7 +463,7 @@ export default function App() {
             background: 'var(--card-bg)',
           }}
         >
-          Developed by: Md. Mohasin, M. Mihir Vijhval, N. Sairam Suraj
+          Developed by: N. Sairam Suraj, Md. Mohasin, M. Mihir Vijhval
         </footer>
       </div>
     </div>
