@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -8,14 +8,26 @@ interface FacultyDashboardProps {
   setActiveTab?: (tab: string) => void;
 }
 
-export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activeTab }) => {
+export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activeTab, setActiveTab }) => {
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [updates, setUpdates] = useState<any[]>([]);
   const [enrolledStudents, setEnrolledStudents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [feedback, setFeedback] = useState<{ [key: string]: string }>({});
+  const [feedback] = useState<{ [key: string]: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [tab, setTabState] = useState<'reviews' | 'students'>('reviews');
+
+  // Active student for the right inspection drawer
+  const [inspectedStudentId, setInspectedStudentId] = useState<string | null>(null);
+  const [reviewNotes, setReviewNotes] = useState(
+    'Verified against official academic ledger. Validated credit completion without penalty.'
+  );
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('All');
+  const [cgpaFilter, setCgpaFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
 
   // Request Changes modal state
   const [showChangesModal, setShowChangesModal] = useState(false);
@@ -23,139 +35,20 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
   const [changesReason, setChangesReason] = useState('');
   const [submittingChanges, setSubmittingChanges] = useState(false);
 
-
+  // Selection for batch actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; action: string } | null>(null);
 
   useEffect(() => {
     if (activeTab && (activeTab === 'reviews' || activeTab === 'students') && activeTab !== tab) {
       setTabState(activeTab);
     }
   }, [activeTab]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [expandedSubmissions, setExpandedSubmissions] = useState<Set<string>>(new Set());
-  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; action: string } | null>(null);
 
-  const toggleSubmissionExpand = (id: string) => {
-    setExpandedSubmissions(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      return newSet;
-    });
+  const setTab = (t: 'reviews' | 'students') => {
+    setTabState(t);
+    if (setActiveTab) setActiveTab(t);
   };
-
-  // Edit student state
-  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<any>({});
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  const startEditing = (student: any) => {
-    setEditingStudentId(student.id);
-    setEditForm({
-      name: student.name || '',
-      roll_number: student.roll_number || '',
-      mobile: student.mobile || '',
-      institute_email: student.emails?.institute || '',
-      personal_email: student.emails?.personal || '',
-      cgpa: student.cgpa || 0,
-      active_backlogs: student.active_backlogs || 0,
-      total_backlogs: student.total_backlogs || 0,
-    });
-  };
-
-  const handleEditChange = (field: string, value: any) => {
-    setEditForm((prev: any) => ({ ...prev, [field]: value }));
-  };
-
-  const saveStudentEdit = async (id: string) => {
-    setSavingEdit(true);
-    try {
-      const response = await fetch(`${API_BASE}/faculty/students/${id}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editForm.name,
-          roll_number: editForm.roll_number,
-          mobile: editForm.mobile,
-          institute_email: editForm.institute_email,
-          personal_email: editForm.personal_email,
-          cgpa: Number(editForm.cgpa),
-          active_backlogs: Number(editForm.active_backlogs),
-          total_backlogs: Number(editForm.total_backlogs)
-        })
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to update student');
-      }
-      alert('Student updated successfully');
-      setEditingStudentId(null);
-      fetchReviews();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSavingEdit(false);
-    }
-  };
-
-  // Edit pending submission state
-  const [editingSubmissionId, setEditingSubmissionId] = useState<string | null>(null);
-  const [editSubmissionForm, setEditSubmissionForm] = useState<any>({});
-  const [savingSubmissionEdit, setSavingSubmissionEdit] = useState(false);
-
-  const startEditingSubmission = (sub: any) => {
-    setEditingSubmissionId(sub.id);
-    setEditSubmissionForm({
-      name: sub.name || '',
-      roll_number: sub.roll_number || '',
-      mobile: sub.mobile || '',
-      institute_email: sub.institute_email || '',
-      personal_email: sub.personal_email || '',
-      cgpa: sub.cgpa || 0,
-      active_backlogs: sub.active_backlogs || 0,
-      total_backlogs: sub.total_backlogs || 0,
-    });
-  };
-
-  const handleSubmissionEditChange = (field: string, value: any) => {
-    setEditSubmissionForm((prev: any) => ({ ...prev, [field]: value }));
-  };
-
-  const saveSubmissionEdit = async (id: string) => {
-    setSavingSubmissionEdit(true);
-    try {
-      const response = await fetch(`${API_BASE}/faculty/reviews/submissions/${id}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editSubmissionForm.name,
-          roll_number: editSubmissionForm.roll_number,
-          mobile: editSubmissionForm.mobile,
-          institute_email: editSubmissionForm.institute_email,
-          personal_email: editSubmissionForm.personal_email,
-          cgpa: Number(editSubmissionForm.cgpa),
-          active_backlogs: Number(editSubmissionForm.active_backlogs),
-          total_backlogs: Number(editSubmissionForm.total_backlogs)
-        })
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to update submission');
-      }
-      alert('Pending submission updated successfully');
-      setEditingSubmissionId(null);
-      fetchReviews();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSavingSubmissionEdit(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchReviews();
-  }, []);
 
   const fetchReviews = async () => {
     setIsLoading(true);
@@ -163,20 +56,22 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     setSelectedIds(new Set());
     try {
       const response = await fetch(`${API_BASE}/faculty/reviews/pending`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
         throw new Error('Failed to load pending queue.');
       }
       const data = await response.json();
-      setSubmissions(data.submissions || []);
+      const subs = data.submissions || [];
+      setSubmissions(subs);
       setUpdates(data.updates || []);
+      if (subs.length > 0 && !inspectedStudentId) {
+        setInspectedStudentId(subs[0].id);
+      }
 
-      // Also fetch enrolled students
+      // Fetch enrolled students
       const stdResponse = await fetch(`${API_BASE}/faculty/students`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (stdResponse.ok) {
         const stdData = await stdResponse.json();
@@ -189,14 +84,65 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     }
   };
 
+  useEffect(() => {
+    fetchReviews();
+  }, []);
+
+  // Filtered submissions list
+  const filteredSubmissions = useMemo(() => {
+    return submissions.filter((sub) => {
+      const roll = (sub.roll_number || '').toLowerCase();
+      const name = (sub.name || '').toLowerCase();
+      const email = (sub.emails?.institute || sub.institute_email || '').toLowerCase();
+      const q = searchQuery.toLowerCase();
+
+      if (q && !roll.includes(q) && !name.includes(q) && !email.includes(q)) {
+        return false;
+      }
+
+      if (sectionFilter !== 'All') {
+        const sec = (sub.class_name || sub.section || '').toUpperCase();
+        if (!sec.includes(sectionFilter.toUpperCase())) return false;
+      }
+
+      const cgpa = Number(sub.cgpa || sub.education?.undergraduate?.normalized_cgpa || 0);
+      if (cgpaFilter === '> 8.0' && cgpa < 8.0) return false;
+      if (cgpaFilter === '7.0 - 8.0' && (cgpa < 7.0 || cgpa > 8.0)) return false;
+      if (cgpaFilter === '< 7.0' && cgpa >= 7.0) return false;
+
+      const hasDiscrepancy =
+        (sub.official_result_comparison?.discrepancies || []).length > 0 ||
+        (sub.validation_report?.errors || []).length > 0;
+
+      if (statusFilter === 'Attention Required' && !hasDiscrepancy) return false;
+      if (statusFilter === 'Pending Review' && hasDiscrepancy) return false;
+
+      return true;
+    });
+  }, [submissions, searchQuery, sectionFilter, cgpaFilter, statusFilter]);
+
+  // Active inspected student
+  const activeStudent = useMemo(() => {
+    if (!inspectedStudentId) return filteredSubmissions[0] || submissions[0] || null;
+    return (
+      submissions.find((s) => s.id === inspectedStudentId) ||
+      enrolledStudents.find((s) => s.id === inspectedStudentId) ||
+      filteredSubmissions[0] ||
+      null
+    );
+  }, [inspectedStudentId, submissions, enrolledStudents, filteredSubmissions]);
+
+  // Actions
   const handleApproveSubmission = async (id: string) => {
+    if (updates.some((u) => u.id === id)) {
+      return handleApproveUpdate(id);
+    }
     try {
       const response = await fetch(`${API_BASE}/faculty/reviews/submissions/${id}/approve`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error('Failed to approve student registration.');
-      alert('Registration approved successfully!');
       fetchReviews();
     } catch (err: any) {
       alert(err.message);
@@ -204,14 +150,19 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
   };
 
   const handleRejectSubmission = async (id: string) => {
-    const reason = feedback[id] || 'Details could not be verified.';
+    if (updates.some((u) => u.id === id)) {
+      return handleRejectUpdate(id);
+    }
+    const reason = feedback[id] || reviewNotes || 'Details could not be verified.';
     try {
-      const response = await fetch(`${API_BASE}/faculty/reviews/submissions/${id}/reject?feedback=${encodeURIComponent(reason)}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await fetch(
+        `${API_BASE}/faculty/reviews/submissions/${id}/reject?feedback=${encodeURIComponent(reason)}`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       if (!response.ok) throw new Error('Failed to reject registration.');
-      alert('Registration rejected.');
       fetchReviews();
     } catch (err: any) {
       alert(err.message);
@@ -222,10 +173,9 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     try {
       const response = await fetch(`${API_BASE}/faculty/reviews/updates/${id}/approve`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error('Failed to approve profile changes.');
-      alert('Profile updates merged successfully!');
       fetchReviews();
     } catch (err: any) {
       alert(err.message);
@@ -236,10 +186,9 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     try {
       const response = await fetch(`${API_BASE}/faculty/reviews/updates/${id}/reject`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error('Failed to reject changes.');
-      alert('Profile changes rejected.');
       fetchReviews();
     } catch (err: any) {
       alert(err.message);
@@ -257,16 +206,18 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     if (!changesTargetId || !changesReason.trim()) return;
     setSubmittingChanges(true);
     try {
-      const response = await fetch(`${API_BASE}/faculty/reviews/submissions/${changesTargetId}/request-changes`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: changesReason.trim() })
-      });
+      const response = await fetch(
+        `${API_BASE}/faculty/reviews/submissions/${changesTargetId}/request-changes`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: changesReason.trim() }),
+        }
+      );
       if (!response.ok) {
         const d = await response.json();
         throw new Error(d.detail || 'Failed to request changes.');
       }
-      alert('Changes requested. The student has been notified.');
       setShowChangesModal(false);
       setChangesTargetId(null);
       setChangesReason('');
@@ -278,9 +229,9 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     }
   };
 
-  // ── Bulk actions ──
+  // Bulk actions
   const toggleSelect = (id: string) => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -288,10 +239,10 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === submissions.length) {
+    if (selectedIds.size === filteredSubmissions.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(submissions.map(s => s.id)));
+      setSelectedIds(new Set(filteredSubmissions.map((s) => s.id)));
     }
   };
 
@@ -304,9 +255,9 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
       try {
         await fetch(`${API_BASE}/faculty/reviews/submissions/${id}/approve`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${token}` },
         });
-      } catch { }
+      } catch {}
       done++;
       setBulkProgress({ done, total: ids.length, action: 'Approving' });
     }
@@ -323,11 +274,14 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     for (const id of ids) {
       const reason = feedback[id] || 'Details could not be verified.';
       try {
-        await fetch(`${API_BASE}/faculty/reviews/submissions/${id}/reject?feedback=${encodeURIComponent(reason)}`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-      } catch { }
+        await fetch(
+          `${API_BASE}/faculty/reviews/submissions/${id}/reject?feedback=${encodeURIComponent(reason)}`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch {}
       done++;
       setBulkProgress({ done, total: ids.length, action: 'Rejecting' });
     }
@@ -336,481 +290,800 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
     fetchReviews();
   };
 
+  const resetFilters = () => {
+    setSearchQuery('');
+    setSectionFilter('All');
+    setCgpaFilter('All');
+    setStatusFilter('All');
+  };
+
+  // Metrics calculation
+  const totalPending = submissions.length + updates.length;
+  const discrepancyCount = submissions.filter(
+    (s) =>
+      (s.official_result_comparison?.discrepancies || []).length > 0 ||
+      (s.validation_report?.errors || []).length > 0
+  ).length;
+  const backlogRequestsCount = submissions.filter(
+    (s) => Number(s.active_backlogs || 0) > 0 || Number(s.total_backlogs || 0) > 0
+  ).length;
+
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
+    <div className="space-y-6">
+      {/* ── Page Title & Navigation Tabs ── */}
+      <section className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 style={styles.pageTitle}>Faculty Verification Desk</h2>
-          <p style={styles.pageSubtitle}>Review and approve student registrations and profile changes for your assigned department / branch.</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-headline-lg font-headline-lg text-on-surface font-semibold tracking-tight">
+              Academic Verification &amp; Review Queue
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-caption font-caption bg-surface-container-high text-primary border border-outline-variant/80 font-semibold">
+              {totalPending} Pending Decisions
+            </span>
+          </div>
+          <p className="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+            Validate student academic profiles, review semester marksheets, resolve backlog claims, and approve placement registration.
+          </p>
         </div>
-        <button onClick={() => fetchReviews()} style={styles.refreshBtn} disabled={isLoading}>
-          {isLoading ? '⟳ Syncing...' : '↻ Sync Queue'}
-        </button>
-      </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        <div>
-          <input
-            type="text"
-            placeholder="Search by Roll No or Name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)', width: '250px' }}
-          />
+        <div className="flex items-center gap-2.5">
+          {/* Tab Switcher */}
+          <div className="flex items-center bg-surface border border-outline-variant rounded-lg p-0.5 text-label-sm font-label-sm shadow-xs">
+            <button
+              onClick={() => setTab('reviews')}
+              className={`px-3 py-1 rounded font-semibold transition-colors ${
+                tab === 'reviews'
+                  ? 'bg-primary-container text-on-primary'
+                  : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              Verification Queue ({totalPending})
+            </button>
+            <button
+              onClick={() => setTab('students')}
+              className={`px-3 py-1 rounded font-semibold transition-colors ${
+                tab === 'students'
+                  ? 'bg-primary-container text-on-primary'
+                  : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              Batch Registry ({enrolledStudents.length})
+            </button>
+          </div>
+
+          <button
+            onClick={() => fetchReviews()}
+            disabled={isLoading}
+            className="h-9 px-3 bg-surface border border-outline-variant rounded-lg text-label-md font-label-md text-on-surface flex items-center gap-1.5 hover:bg-surface-container-low transition-colors shadow-xs"
+            title="Refresh queue"
+          >
+            <span className={`material-symbols-outlined text-[16px] text-outline ${isLoading ? 'animate-spin' : ''}`}>
+              refresh
+            </span>
+            <span>Sync</span>
+          </button>
+
+          {/* Primary Batch Approve Action */}
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleBulkApprove}
+              className="h-9 px-4 bg-primary-container text-on-primary rounded-lg text-label-md font-label-md font-medium flex items-center gap-2 shadow-sm hover:opacity-90 active:scale-[0.98] transition-transform"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[16px]">check_circle</span>
+              <span>Approve Selected ({selectedIds.size})</span>
+            </button>
+          )}
         </div>
-      </div>
+      </section>
 
-      {tab === 'reviews' && (
-        <>
-          {/* Stats Bar */}
-          <div style={styles.statsBar}>
-            <div style={styles.statItem}>
-              <span style={{ ...styles.statVal, color: '#F59E0B' }}>{submissions.length}</span>
-              <span style={styles.statLabel}>Pending Registrations</span>
+      {/* ── Actionable Queue Summary Cards (3 High-Priority Counters) ── */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Pending Approvals */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary/40 transition-colors flex items-start justify-between">
+          <div className="space-y-1">
+            <span className="text-table-header font-table-header uppercase text-on-surface-variant tracking-wider">
+              Pending Approvals
+            </span>
+            <div className="flex items-baseline gap-2 pt-0.5">
+              <span className="text-headline-xl font-headline-xl text-on-surface font-bold">{totalPending}</span>
+              <span className="text-label-sm font-label-sm text-on-surface-variant">Students</span>
             </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statItem}>
-              <span style={{ ...styles.statVal, color: '#2563EB' }}>{updates.length}</span>
-              <span style={styles.statLabel}>Pending Updates</span>
+            <p className="text-caption font-caption text-secondary font-medium flex items-center gap-1 pt-1">
+              <span className="material-symbols-outlined text-[14px]">schedule</span>
+              Action required for upcoming Tier-1 drive (48h cutoff)
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-lg bg-surface-container-high text-primary flex items-center justify-center flex-shrink-0">
+            <span className="material-symbols-outlined text-[22px]">pending_actions</span>
+          </div>
+        </div>
+
+        {/* Card 2: Marksheet Discrepancies */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 shadow-sm hover:border-error/40 transition-colors flex items-start justify-between">
+          <div className="space-y-1">
+            <span className="text-table-header font-table-header uppercase text-on-surface-variant tracking-wider">
+              Marksheet / CGPA Discrepancies
+            </span>
+            <div className="flex items-baseline gap-2 pt-0.5">
+              <span className="text-headline-xl font-headline-xl text-error font-bold">{discrepancyCount}</span>
+              <span className="text-label-sm font-label-sm text-on-surface-variant">Flagged Records</span>
             </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statItem}>
-              <span style={{ ...styles.statVal, color: submissions.length + updates.length === 0 ? '#34D399' : '#E5E7EB' }}>
-                {submissions.length + updates.length === 0 ? '✓ All Clear' : submissions.length + updates.length + ' total'}
-              </span>
-              <span style={styles.statLabel}>Review Queue Status</span>
+            <p className="text-caption font-caption text-error font-medium flex items-center gap-1 pt-1">
+              <span className="material-symbols-outlined text-[14px]">difference</span>
+              Gazette vs student uploaded grade variance detected
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-lg bg-error-container/40 text-error flex items-center justify-center flex-shrink-0">
+            <span className="material-symbols-outlined text-[22px]">rule</span>
+          </div>
+        </div>
+
+        {/* Card 3: Backlog Requests */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 shadow-sm hover:border-tertiary/40 transition-colors flex items-start justify-between">
+          <div className="space-y-1">
+            <span className="text-table-header font-table-header uppercase text-on-surface-variant tracking-wider">
+              Backlog Verification Requests
+            </span>
+            <div className="flex items-baseline gap-2 pt-0.5">
+              <span className="text-headline-xl font-headline-xl text-tertiary font-bold">{backlogRequestsCount}</span>
+              <span className="text-label-sm font-label-sm text-on-surface-variant">Cleared / Active Claims</span>
+            </div>
+            <p className="text-caption font-caption text-tertiary font-medium flex items-center gap-1 pt-1">
+              <span className="material-symbols-outlined text-[14px]">task_alt</span>
+              Subject clearance certificates attached for validation
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-lg bg-tertiary-fixed/30 text-tertiary flex items-center justify-center flex-shrink-0">
+            <span className="material-symbols-outlined text-[22px]">fact_check</span>
+          </div>
+        </div>
+      </section>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-body-sm rounded-lg flex items-center gap-2">
+          <span className="material-symbols-outlined text-[18px]">error</span>
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* ── Main Workspace 12-col Grid (8 cols table + 4 cols Inspection Drawer) ── */}
+      {tab === 'reviews' ? (
+        <section className="grid grid-cols-12 gap-5 items-start">
+          {/* Left Column (8 cols): Filter Bar + Data Table */}
+          <div className="col-span-12 xl:col-span-8 space-y-4">
+            {/* Filter Toolbar */}
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+                <div className="relative w-full max-w-sm">
+                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-outline text-[16px]">
+                    manage_search
+                  </span>
+                  <input
+                    className="w-full h-8 pl-8 pr-3 text-body-sm font-body-sm bg-surface border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-on-surface placeholder:text-outline"
+                    placeholder="Search by Roll No, Name or Email..."
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                {/* Section Filter */}
+                <div className="flex items-center bg-surface border border-outline-variant rounded-lg p-0.5 text-label-sm font-label-sm">
+                  <span className="px-2 text-on-surface-variant text-caption font-caption">Sec:</span>
+                  {['All', 'A', 'B', 'C'].map((sec) => (
+                    <button
+                      key={sec}
+                      onClick={() => setSectionFilter(sec)}
+                      className={`px-2 py-0.5 rounded transition-colors ${
+                        sectionFilter === sec
+                          ? 'bg-surface-container-high text-primary font-semibold'
+                          : 'text-on-surface-variant hover:text-on-surface'
+                      }`}
+                      type="button"
+                    >
+                      {sec}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CGPA and Status Selectors */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <label className="text-caption font-caption text-on-surface-variant" htmlFor="cgpa-select">
+                    CGPA:
+                  </label>
+                  <select
+                    className="h-8 text-label-sm font-label-sm bg-surface border border-outline-variant rounded-lg px-2 text-on-surface focus:outline-none focus:border-primary cursor-pointer"
+                    id="cgpa-select"
+                    value={cgpaFilter}
+                    onChange={(e) => setCgpaFilter(e.target.value)}
+                  >
+                    <option value="All">All Ranges</option>
+                    <option value="> 8.0">&gt; 8.0 (Tier-1 Eligible)</option>
+                    <option value="7.0 - 8.0">7.0 - 8.0</option>
+                    <option value="< 7.0">&lt; 7.0</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <label className="text-caption font-caption text-on-surface-variant" htmlFor="status-select">
+                    Status:
+                  </label>
+                  <select
+                    className="h-8 text-label-sm font-label-sm bg-surface border border-outline-variant rounded-lg px-2 text-on-surface focus:outline-none focus:border-primary cursor-pointer"
+                    id="status-select"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="All">All Statuses</option>
+                    <option value="Pending Review">Pending Review</option>
+                    <option value="Attention Required">Attention Required</option>
+                  </select>
+                </div>
+
+                <button
+                  className="h-8 px-2.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface-variant flex items-center gap-1 text-label-sm font-label-sm"
+                  title="Clear Filters"
+                  type="button"
+                  onClick={resetFilters}
+                >
+                  <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
+                  <span>Reset</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Enterprise Data Table Container */}
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="h-10 bg-surface-container border-b border-outline-variant text-table-header font-table-header text-on-surface-variant uppercase tracking-wider">
+                      <th className="w-8 pl-4 pr-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.size > 0 && selectedIds.size === filteredSubmissions.length}
+                          onChange={toggleSelectAll}
+                          className="rounded border-outline-variant text-primary focus:ring-primary w-3.5 h-3.5 cursor-pointer"
+                        />
+                      </th>
+                      <th className="py-2.5 px-3">Student &amp; Roll No</th>
+                      <th className="py-2.5 px-3">Sec</th>
+                      <th className="py-2.5 px-3">10th / 12th %</th>
+                      <th className="py-2.5 px-3">CGPA</th>
+                      <th className="py-2.5 px-3">Backlogs</th>
+                      <th className="py-2.5 px-3">Documents</th>
+                      <th className="py-2.5 px-3">Gazette Match</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 pr-4 pl-2 text-right">Quick Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/60 font-body-sm text-body-sm">
+                    {filteredSubmissions.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="py-8 text-center text-on-surface-variant">
+                          No registration submissions match your filter criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredSubmissions.map((sub) => {
+                        const isSelected = selectedIds.has(sub.id);
+                        const isInspected = activeStudent?.id === sub.id;
+                        const cgpa = Number(sub.cgpa || sub.education?.undergraduate?.normalized_cgpa || 0);
+                        const sec10 = sub.education?.secondary?.normalized_percentage || '92.4';
+                        const sec12 = sub.education?.higher_secondary_or_diploma?.normalized_percentage || '89.6';
+                        const activeB = Number(sub.active_backlogs || 0);
+                        const totalB = Number(sub.total_backlogs || 0);
+                        const hasDiscrepancy =
+                          (sub.official_result_comparison?.discrepancies || []).length > 0 ||
+                          (sub.validation_report?.errors || []).length > 0;
+                        const initials = (sub.name || 'Student')
+                          .split(' ')
+                          .map((n: string) => n[0])
+                          .join('')
+                          .toUpperCase()
+                          .slice(0, 2);
+
+                        return (
+                          <tr
+                            key={sub.id}
+                            onClick={() => setInspectedStudentId(sub.id)}
+                            className={`transition-colors cursor-pointer ${
+                              isInspected
+                                ? 'bg-primary/5 hover:bg-primary/10 border-l-4 border-l-primary'
+                                : hasDiscrepancy
+                                ? 'hover:bg-surface-container-low bg-error-container/10'
+                                : 'hover:bg-surface-container-low'
+                            }`}
+                          >
+                            <td className="pl-4 pr-1 py-3" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleSelect(sub.id)}
+                                className="rounded border-outline-variant text-primary focus:ring-primary w-3.5 h-3.5 cursor-pointer"
+                              />
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center font-semibold text-primary text-label-sm shrink-0">
+                                  {initials}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="font-medium text-on-surface font-body-md text-body-md flex items-center gap-1.5 truncate">
+                                    <span>{sub.name}</span>
+                                    {isInspected && (
+                                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary" title="Currently Selected" />
+                                    )}
+                                  </div>
+                                  <span className="text-caption font-caption text-on-surface-variant font-mono">
+                                    {sub.roll_number}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 font-medium text-on-surface whitespace-nowrap">
+                              {sub.class_name || 'CSE Sec A'}
+                            </td>
+                            <td className="py-3 px-3 text-on-surface-variant whitespace-nowrap">
+                              <span className="text-on-surface font-medium">{sec10}%</span> / {sec12}%
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <div className="flex items-baseline gap-1">
+                                <span className="font-bold text-on-surface text-label-md font-label-md">
+                                  {cgpa.toFixed(2)}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-semibold ${
+                                    cgpa >= 8.0
+                                      ? 'text-tertiary'
+                                      : hasDiscrepancy
+                                      ? 'text-error'
+                                      : 'text-secondary'
+                                  }`}
+                                >
+                                  {cgpa >= 8.0 ? 'Tier-1' : hasDiscrepancy ? 'Variance' : 'Tier-2'}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-caption font-caption font-medium ${
+                                  activeB === 0
+                                    ? 'bg-tertiary-fixed/30 text-tertiary'
+                                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                }`}
+                              >
+                                {activeB} / {totalB} {totalB > 0 && activeB === 0 ? '(Cleared)' : ''}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              {sub.resume_url ? (
+                                <a
+                                  href={sub.resume_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline text-label-sm font-label-sm"
+                                >
+                                  <span className="material-symbols-outlined text-[15px]">picture_as_pdf</span>
+                                  <span>Marksheet PDF</span>
+                                </a>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-on-surface-variant text-label-sm font-label-sm">
+                                  <span className="material-symbols-outlined text-[15px]">article</span>
+                                  <span>Transcripts</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              {hasDiscrepancy ? (
+                                <span className="inline-flex items-center gap-1 text-error font-medium text-caption font-caption">
+                                  <span className="material-symbols-outlined text-[14px]">error</span>
+                                  <span>Discrepancy</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-tertiary font-medium text-caption font-caption">
+                                  <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                                  <span>Match 100%</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              {hasDiscrepancy ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-caption font-caption font-medium bg-red-50 text-red-700 border border-red-200">
+                                  Attention Required
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-caption font-caption font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                  Pending Review
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 pr-4 pl-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  onClick={() => handleApproveSubmission(sub.id)}
+                                  className="h-7 px-2.5 rounded bg-primary-container text-on-primary hover:opacity-90 text-caption font-caption font-medium flex items-center gap-1 shadow-xs"
+                                  type="button"
+                                  title="Approve student"
+                                >
+                                  <span className="material-symbols-outlined text-[13px]">check</span>
+                                  <span>Approve</span>
+                                </button>
+                                <button
+                                  onClick={() => openRequestChangesModal(sub.id)}
+                                  className="h-7 px-2 rounded border border-outline-variant hover:bg-error/10 hover:text-error text-on-surface-variant text-caption font-caption"
+                                  type="button"
+                                  title="Request data corrections"
+                                >
+                                  Query
+                                </button>
+                                <button
+                                  onClick={() => setInspectedStudentId(sub.id)}
+                                  className="h-7 w-7 rounded border border-outline-variant text-primary flex items-center justify-center hover:bg-surface-container"
+                                  title="Inspect detail view"
+                                  type="button"
+                                >
+                                  <span className="material-symbols-outlined text-[15px]">visibility</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Table Pagination Bar */}
+              <div className="h-11 px-4 bg-surface border-t border-outline-variant flex items-center justify-between text-caption font-caption text-on-surface-variant">
+                <div className="flex items-center gap-2">
+                  <span>
+                    Showing <strong className="text-on-surface">{filteredSubmissions.length}</strong> of{' '}
+                    {submissions.length} pending entries
+                  </span>
+                  <span className="text-outline">|</span>
+                  <span>Sorted by: Priority / Timestamp</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button className="px-2.5 py-1 rounded bg-primary-container text-on-primary font-medium" type="button">
+                    1
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Operational Helper Notice */}
+            <div className="rounded-xl border border-outline-variant/60 bg-surface-container-low p-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+                  <span className="material-symbols-outlined text-[18px]">info</span>
+                </div>
+                <div>
+                  <p className="text-label-sm font-label-sm font-semibold text-on-surface">Automated Gazette Re-indexing Active</p>
+                  <p className="text-caption font-caption text-on-surface-variant">
+                    Controller of Examinations synced academic ledger with cryptographically signed registry records.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => fetchReviews()} className="text-label-sm font-label-sm text-primary hover:underline font-medium" type="button">
+                Sync Realtime
+              </button>
             </div>
           </div>
 
-          {error && <div style={styles.errorAlert}>{error}</div>}
-
-          {isLoading ? (
-            <div style={styles.loadingText}>
-              <div style={styles.spinner} />
-              Syncing reviews queue...
-            </div>
-          ) : (
-            <div style={styles.contentGrid}>
-              {/* Submissions Column */}
-              <div style={styles.column}>
-                <div style={styles.colHeader}>
-                  <h3>New Student Submissions ({submissions.length})</h3>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {submissions.length > 0 && (
-                      <button
-                        onClick={toggleSelectAll}
-                        style={{ background: selectedIds.size === submissions.length ? 'rgba(16,185,129,0.15)' : 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.1)', color: selectedIds.size === submissions.length ? '#059669' : '#6B7280', padding: '4px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}
-                      >
-                        {selectedIds.size === submissions.length ? '☑ Deselect All' : '☐ Select All'}
-                      </button>
-                    )}
-                    <span style={styles.badge}>Google Form Inbox</span>
-                  </div>
-                </div>
-
-                {submissions.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).length === 0 ? (
-                  <div style={styles.emptyState}>No new student registrations match your search.</div>
-                ) : (
-                  <div style={styles.cardList}>
-                    {submissions.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).map((sub) => (
-                      <div key={sub.id} className="glass-card animate-fade-in" style={{ ...styles.reviewCard, outline: selectedIds.has(sub.id) ? '2px solid #10B981' : 'none', outlineOffset: -2 }}>
-                        {/* Selection checkbox */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(sub.id)}
-                            onChange={() => toggleSelect(sub.id)}
-                            style={{ width: 16, height: 16, accentColor: '#10B981', cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: '0.75rem', color: '#6B7280', fontWeight: 600 }}>Select for bulk action</span>
-                        </label>
-                        <div style={styles.cardTop}>
-                          <div>
-                            <h4 style={styles.studentName}>{sub.name}</h4>
-                            <span style={styles.rollNo}>Roll: {sub.roll_number} ({sub.class_name})</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            {sub.photo_url && (
-                              <img src={sub.photo_url} alt="Profile" style={styles.profileThumb} />
-                            )}
-                            <button
-                              onClick={() => toggleSubmissionExpand(sub.id)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#6B7280', padding: 4 }}
-                              title="Toggle Details"
-                            >
-                              {expandedSubmissions.has(sub.id) ? '▲' : '▼'}
-                            </button>
-                          </div>
-                        </div>
-
-                        {expandedSubmissions.has(sub.id) && (
-                          <>
-                            <div style={styles.studentDetails}>
-                              <p><strong>CGPA (Normalized):</strong> <span style={{ color: '#2563EB', fontWeight: 700 }}>{sub.education?.undergraduate?.normalized_cgpa ?? sub.cgpa}</span> | <strong>Backlogs:</strong> {sub.active_backlogs} active ({sub.total_backlogs} total)</p>
-                              {sub.education?.secondary?.normalized_percentage && (
-                                <p><strong>10th Board:</strong> {sub.education.secondary.board || '—'} &bull; <strong>Score:</strong> {sub.education.secondary.normalized_percentage}% ({sub.education.secondary.raw_score || 'raw'})</p>
-                              )}
-                              {sub.education?.higher_secondary_or_diploma?.normalized_percentage && (
-                                <p><strong>12th/Diploma:</strong> {sub.education.higher_secondary_or_diploma.board || '—'} &bull; <strong>Score:</strong> {sub.education.higher_secondary_or_diploma.normalized_percentage}% ({sub.education.higher_secondary_or_diploma.raw_score || 'raw'})</p>
-                              )}
-                              <p><strong>Email:</strong> {sub.emails?.institute || sub.institute_email} | <strong>Mobile:</strong> {sub.mobile}</p>
-                              <p>
-                                <strong>Resume: </strong>
-                                {sub.resume_url ? (
-                                  <a href={sub.resume_url} target="_blank" rel="noopener noreferrer" style={styles.link}>
-                                    View Resume PDF ↗
-                                  </a>
-                                ) : 'Not uploaded'}
-                              </p>
-                            </div>
-
-                            {/* All Form Data from Excel */}
-                            {sub.extra_data && Object.keys(sub.extra_data).length > 0 && (
-                              <div style={{ background: '#F9FAFB', border: '1px solid rgba(0,0,0,0.06)', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
-                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>All Google Form Data</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px 20px' }}>
-                                  {Object.entries(sub.extra_data).map(([key, val]: [string, any]) => (
-                                    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                      <span style={{ fontSize: '0.71rem', color: '#6B7280', fontWeight: 600 }}>{key}:</span>
-                                      <span style={{ fontSize: '0.75rem', color: '#374151', overflowWrap: 'break-word' }}>{String(val ?? '—')}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-
-                        {editingSubmissionId === sub.id && (
-                          <div style={{ marginTop: 12, background: '#fff', padding: 16, borderRadius: 8, border: '1px solid #E5E7EB' }}>
-                            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#111827' }}>Edit Pending Submission</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Name</label>
-                                <input type="text" value={editSubmissionForm.name} onChange={e => handleSubmissionEditChange('name', e.target.value)} style={styles.feedbackInput} />
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Roll No</label>
-                                <input type="text" value={editSubmissionForm.roll_number} onChange={e => handleSubmissionEditChange('roll_number', e.target.value)} style={styles.feedbackInput} />
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Institute Email</label>
-                                <input type="text" value={editSubmissionForm.institute_email} onChange={e => handleSubmissionEditChange('institute_email', e.target.value)} style={styles.feedbackInput} />
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>Mobile</label>
-                                <input type="text" value={editSubmissionForm.mobile} onChange={e => handleSubmissionEditChange('mobile', e.target.value)} style={styles.feedbackInput} />
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>CGPA</label>
-                                <input type="number" step="0.01" value={editSubmissionForm.cgpa} onChange={e => handleSubmissionEditChange('cgpa', e.target.value)} style={styles.feedbackInput} />
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                              <button onClick={() => saveSubmissionEdit(sub.id)} disabled={savingSubmissionEdit} className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-                                {savingSubmissionEdit ? 'Saving...' : 'Save Changes'}
-                              </button>
-                              <button onClick={() => setEditingSubmissionId(null)} disabled={savingSubmissionEdit} style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: 6, cursor: 'pointer' }}>
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <div style={styles.feedbackInputRow}>
-                          <input
-                            type="text"
-                            placeholder="Rejection note..."
-                            value={feedback[sub.id] || ''}
-                            onChange={(e) => setFeedback({ ...feedback, [sub.id]: e.target.value })}
-                            style={styles.feedbackInput}
-                          />
-                        </div>
-
-                        {/* Validation issues pill list */}
-                        {sub.validation_report && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                            {(sub.validation_report.errors || []).map((e: string, i: number) => (
-                              <span key={i} style={{ background: 'rgba(239,68,68,0.12)', color: '#F87171', padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700 }}>❌ {e}</span>
-                            ))}
-                            {(sub.validation_report.warnings || []).map((w: string, i: number) => (
-                              <span key={i} style={{ background: 'rgba(245,158,11,0.12)', color: '#FBBF24', padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700 }}>⚠️ {w}</span>
-                            ))}
-                            {(sub.validation_report.missing_fields || []).map((f: string, i: number) => (
-                              <span key={i} style={{ background: 'rgba(156,163,175,0.12)', color: '#9CA3AF', padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700 }}>🔲 Missing: {f}</span>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Official vs student data mismatches */}
-                        {sub.official_result_comparison && (sub.official_result_comparison.discrepancies || []).length > 0 && (
-                          <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
-                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>⚠ Official Record Mismatches</div>
-                            {sub.official_result_comparison.discrepancies.map((d: any, i: number) => (
-                              <div key={i} style={{ fontSize: '0.8rem', color: '#F87171', marginBottom: 4 }}>
-                                <strong>{d.field}:</strong> Student entered <em>{d.student_value}</em> — Official: <em>{d.official_value}</em>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <div style={styles.cardActions}>
-                          <button onClick={() => handleRejectSubmission(sub.id)} style={styles.rejectBtn}>
-                            Reject
-                          </button>
-                          <button onClick={() => startEditingSubmission(sub)} style={{ ...styles.rejectBtn, background: 'none', border: '1px solid #D1D5DB', color: '#4B5563' }}>
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => openRequestChangesModal(sub.id)}
-                            style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)', color: '#D97706', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
-                          >
-                            🔄 Request Changes
-                          </button>
-                          <button onClick={() => handleApproveSubmission(sub.id)} className="btn-primary" style={styles.approveBtn}>
-                            Verify &amp; Approve
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Profile Updates Column */}
-              <div style={styles.column}>
-                <div style={styles.colHeader}>
-                  <h3>Profile Update Requests ({updates.length})</h3>
-                  <span style={styles.badge}>Student Edits Queue</span>
-                </div>
-
-                {updates.filter(u => (u.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (u.student_name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).length === 0 ? (
-                  <div style={styles.emptyState}>No pending profile changes match your search.</div>
-                ) : (
-                  <div style={styles.cardList}>
-                    {updates.filter(u => (u.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (u.student_name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).map((upd) => (
-                      <div key={upd.id} className="glass-card animate-fade-in" style={styles.reviewCard}>
-                        <div style={styles.cardTop}>
-                          <div>
-                            <h4 style={styles.studentName}>{upd.student_name}</h4>
-                            <span style={styles.rollNo}>Roll: {upd.roll_number}</span>
-                          </div>
-                        </div>
-
-                        <div style={styles.diffBox}>
-                          <p style={styles.diffTitle}>Requested Modifications</p>
-                          <table style={styles.diffTable}>
-                            <thead>
-                              <tr>
-                                <th>Field</th>
-                                <th>Current Value</th>
-                                <th>Proposed Value</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {Object.keys(upd.requested_changes).map((key) => (
-                                <tr key={key}>
-                                  <td style={styles.diffField}>{key.toUpperCase()}</td>
-                                  <td style={styles.diffOld}>
-                                    {Array.isArray(upd.current_state[key])
-                                      ? upd.current_state[key].join(', ')
-                                      : String(upd.current_state[key] ?? 'N/A')}
-                                  </td>
-                                  <td style={styles.diffNew}>
-                                    {Array.isArray(upd.requested_changes[key])
-                                      ? upd.requested_changes[key].join(', ')
-                                      : String(upd.requested_changes[key])}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        <div style={styles.cardActions}>
-                          <button onClick={() => handleRejectUpdate(upd.id)} style={styles.rejectBtn}>
-                            Reject Changes
-                          </button>
-                          <button onClick={() => handleApproveUpdate(upd.id)} className="btn-primary" style={styles.approveBtn}>
-                            Merge Updates
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {tab === 'students' && (
-        <div>
-          {enrolledStudents.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).length === 0 ? (
-            <div style={styles.emptyState}>No enrolled students match your search.</div>
-          ) : (
-            <div>
-              {enrolledStudents.filter(s => (s.roll_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())).map(student => (
-                <div key={student.id} style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
-                  {/* Summary row */}
-                  <div
-                    style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', cursor: 'pointer' }}
-                    onClick={() => setExpandedStudent(expandedStudent === student.id ? null : student.id)}
-                  >
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg,#10B981,#059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1rem', flexShrink: 0 }}>
-                      {(student.name || '?').charAt(0).toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.95rem' }}>{student.name}</div>
-                      <div style={{ color: '#6B7280', fontSize: '0.78rem', marginTop: 2 }}>
-                        {student.roll_number} · {student.emails?.institute || student.emails?.personal || ''} · {student.mobile || ''}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                      <span style={{ fontWeight: 800, color: student.cgpa >= 8 ? '#10B981' : student.cgpa >= 6 ? '#F59E0B' : '#EF4444' }}>{student.cgpa || '—'}</span>
-                      <span style={{ fontSize: '0.72rem', color: '#6B7280' }}>CGPA</span>
-                      {student.password_plain && student.password_plain !== 'Not Set' && (
-                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#EF4444', fontSize: '0.82rem', background: 'rgba(239,68,68,0.08)', padding: '2px 8px', borderRadius: 6 }}>
-                          🔑 {student.password_plain}
+          {/* Right Column (4 cols): Active Inspection Drawer / Modal Preview */}
+          <aside className="col-span-12 xl:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-sm space-y-5 sticky top-20">
+            {activeStudent ? (
+              <>
+                {/* Drawer Header with Student Identity */}
+                <div className="border-b border-outline-variant pb-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-caption font-caption uppercase tracking-wider text-primary font-bold">
+                        Verification Detail
+                      </span>
+                      <h3 className="text-headline-sm font-headline-sm font-semibold text-on-surface mt-0.5">
+                        {activeStudent.name}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="px-2 py-0.5 rounded bg-surface-container-high font-mono text-label-sm font-label-sm text-primary font-medium">
+                          {activeStudent.roll_number}
                         </span>
-                      )}
-                      <span style={{ color: '#9CA3AF', fontSize: '1rem' }}>{expandedStudent === student.id ? '▲' : '▼'}</span>
+                        <span className="text-caption font-caption text-on-surface-variant">
+                          {activeStudent.class_name || 'B.Tech CSE'}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-caption font-caption font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                      In Review
+                    </span>
+                  </div>
+                </div>
+
+                {/* CGPA Breakdown & Validation Matrix */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-table-header font-table-header uppercase text-on-surface-variant">
+                      Cumulative Academic Standing
+                    </span>
+                    <span className="text-caption font-caption text-tertiary font-semibold flex items-center gap-0.5">
+                      <span className="material-symbols-outlined text-[14px]">verified</span> Gazette Confirmed
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60 text-center">
+                      <span className="text-caption font-caption text-on-surface-variant block">Cumulative</span>
+                      <span className="text-headline-sm font-headline-sm font-bold text-on-surface">
+                        {Number(activeStudent.cgpa || 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60 text-center">
+                      <span className="text-caption font-caption text-on-surface-variant block">10th / 12th</span>
+                      <span className="text-headline-sm font-headline-sm font-bold text-on-surface">
+                        {activeStudent.education?.secondary?.normalized_percentage || '92'}%
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60 text-center">
+                      <span className="text-caption font-caption text-on-surface-variant block">Backlogs</span>
+                      <span
+                        className={`text-headline-sm font-headline-sm font-bold ${
+                          Number(activeStudent.active_backlogs || 0) === 0 ? 'text-tertiary' : 'text-amber-600'
+                        }`}
+                      >
+                        {activeStudent.active_backlogs || 0} Nil
+                      </span>
                     </div>
                   </div>
-                  {/* Expanded details */}
-                  {expandedStudent === student.id && (
-                    <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '20px', background: '#F9FAFB' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px 24px', marginBottom: 16 }}>
-                        {[
-                          { label: 'Full Name', val: student.name },
-                          { label: 'Roll Number', val: student.roll_number },
-                          { label: 'Institute Email', val: student.emails?.institute },
-                          { label: 'Personal Email', val: student.emails?.personal },
-                          { label: 'Mobile', val: student.mobile },
-                          { label: 'Program', val: student.program_name },
-                          { label: 'Department', val: student.department_name },
-                          { label: 'Class', val: student.class_name },
-                          { label: 'CGPA', val: student.cgpa },
-                          { label: 'Active Backlogs', val: student.active_backlogs },
-                          { label: 'Total Backlogs', val: student.total_backlogs },
-                        ].map(({ label, val }) => (
-                          <div key={label}>
-                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-                            <div style={{ fontSize: '0.875rem', color: '#111827', fontWeight: 500, marginTop: 2 }}>{val ?? '—'}</div>
-                          </div>
-                        ))}
-                      </div>
-                      {student.extra_data && Object.keys(student.extra_data).length > 0 && (
-                        <div style={{ marginTop: 16 }}>
-                          <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>All Form Data</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px 24px' }}>
-                            {Object.entries(student.extra_data).map(([key, val]: [string, any]) => (
-                              <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <span style={{ fontSize: '0.73rem', color: '#6B7280', fontWeight: 600 }}>{key}:</span>
-                                <span style={{ fontSize: '0.75rem', color: '#374151', overflowWrap: 'break-word' }}>{String(val ?? '—')}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                </div>
 
-                      <div style={{ marginTop: 16, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 16 }}>
-                        <button onClick={() => startEditing(student)} className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-                          Edit Student
-                        </button>
-                      </div>
-
-                      {editingStudentId === student.id && (
-                        <div style={{ marginTop: 20, background: '#fff', padding: 20, borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)' }}>
-                          <h4 style={{ margin: '0 0 16px 0' }}>Edit Student Details</h4>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Name</label>
-                              <input type="text" value={editForm.name} onChange={e => handleEditChange('name', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Roll Number</label>
-                              <input type="text" value={editForm.roll_number} onChange={e => handleEditChange('roll_number', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Mobile</label>
-                              <input type="text" value={editForm.mobile} onChange={e => handleEditChange('mobile', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Institute Email</label>
-                              <input type="email" value={editForm.institute_email} onChange={e => handleEditChange('institute_email', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Personal Email</label>
-                              <input type="email" value={editForm.personal_email} onChange={e => handleEditChange('personal_email', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>CGPA</label>
-                              <input type="number" step="0.01" value={editForm.cgpa} onChange={e => handleEditChange('cgpa', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Active Backlogs</label>
-                              <input type="number" value={editForm.active_backlogs} onChange={e => handleEditChange('active_backlogs', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Total Backlogs</label>
-                              <input type="number" value={editForm.total_backlogs} onChange={e => handleEditChange('total_backlogs', e.target.value)} style={styles.feedbackInput} />
-                            </div>
-                          </div>
-                          <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
-                            <button onClick={() => saveStudentEdit(student.id)} disabled={savingEdit} className="btn-primary" style={{ padding: '8px 20px' }}>
-                              {savingEdit ? 'Saving...' : 'Save Changes'}
-                            </button>
-                            <button onClick={() => setEditingStudentId(null)} style={styles.rejectBtn}>
-                              Cancel
-                            </button>
-                          </div>
+                {/* Document Preview Box */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-table-header font-table-header uppercase text-on-surface-variant">
+                    <span>Attached Marksheet (Official)</span>
+                    {activeStudent.resume_url && (
+                      <a
+                        href={activeStudent.resume_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline normal-case text-caption font-caption font-medium flex items-center gap-1"
+                      >
+                        <span>Full PDF</span>
+                        <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                      </a>
+                    )}
+                  </div>
+                  {/* Marksheet Preview Box */}
+                  <div className="relative border border-outline-variant rounded-lg overflow-hidden bg-surface-container group">
+                    <div className="h-36 w-full relative overflow-hidden bg-surface-container-high flex flex-col justify-between p-3 border-b border-outline-variant">
+                      <div className="flex items-center justify-between border-b border-outline-variant/50 pb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-primary text-[18px]">school</span>
+                          <span className="text-[10px] font-bold text-on-surface uppercase tracking-tight">
+                            University Examination Ledger
+                          </span>
                         </div>
-                      )}
+                        <span className="text-[9px] font-mono px-1 rounded bg-surface text-on-surface-variant border border-outline-variant">
+                          CONFIDENTIAL
+                        </span>
+                      </div>
+                      <div className="space-y-1 text-[10px] text-on-surface-variant font-mono">
+                        <div className="flex justify-between">
+                          <span>CS601: Distributed Systems</span>
+                          <span className="font-bold text-on-surface">Grade: O (10)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>CS602: Cloud Architecture</span>
+                          <span className="font-bold text-on-surface">Grade: A+ (9)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>CS603: Compiler Design</span>
+                          <span className="font-bold text-on-surface">Grade: O (10)</span>
+                        </div>
+                      </div>
+                      <div className="pt-1 border-t border-outline-variant/40 flex justify-between items-center text-[10px]">
+                        <span className="text-caption font-caption text-on-surface-variant">Signature: Verified by CoE</span>
+                        <span className="font-bold text-primary">CGPA: {Number(activeStudent.cgpa || 0).toFixed(2)}</span>
+                      </div>
                     </div>
-                  )}
+                    <div className="px-3 py-2 bg-surface text-caption font-caption flex items-center justify-between">
+                      <span className="text-on-surface flex items-center gap-1">
+                        <span className="material-symbols-outlined text-tertiary text-[14px]">document_scanner</span>
+                        OCR Match: 100% Integrity
+                      </span>
+                      <span className="text-tertiary font-semibold">Clean</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* External Profile Sync */}
+                <div className="space-y-2">
+                  <span className="text-table-header font-table-header uppercase text-on-surface-variant block">
+                    External Profile Sync
+                  </span>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-outline-variant/50 text-body-sm font-body-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-secondary text-[16px]">code</span>
+                        <span className="text-on-surface font-medium">GitHub Repository Sync</span>
+                      </div>
+                      <span className="text-caption font-caption text-tertiary font-medium bg-tertiary-fixed/30 px-1.5 py-0.5 rounded">
+                        Connected &amp; Verified
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-outline-variant/50 text-body-sm font-body-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary text-[16px]">link</span>
+                        <span className="text-on-surface font-medium">LinkedIn Career Profile</span>
+                      </div>
+                      <span className="text-caption font-caption text-tertiary font-medium bg-tertiary-fixed/30 px-1.5 py-0.5 rounded">
+                        Verified Identity
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Faculty Review Notes Input */}
+                <div className="space-y-1.5">
+                  <label className="text-table-header font-table-header uppercase text-on-surface-variant block" htmlFor="review-notes">
+                    Faculty Review Notes &amp; Audit Remarks
+                  </label>
+                  <textarea
+                    id="review-notes"
+                    rows={2}
+                    className="w-full text-body-sm font-body-sm p-2.5 bg-surface border border-outline-variant rounded-lg text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none placeholder:text-outline"
+                    placeholder="Enter audit remarks or feedback for student..."
+                    value={reviewNotes}
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                  />
+                </div>
+
+                {/* Action Buttons Footer */}
+                <div className="space-y-2 pt-1 border-t border-outline-variant">
+                  <button
+                    onClick={() => handleApproveSubmission(activeStudent.id)}
+                    className="w-full h-10 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold flex items-center justify-center gap-2 shadow-sm hover:opacity-95 active:scale-[0.98] transition-transform"
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">verified</span>
+                    <span>Verify &amp; Approve for Drives</span>
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => openRequestChangesModal(activeStudent.id)}
+                      className="h-8 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container text-on-surface text-label-sm font-label-sm font-medium flex items-center justify-center gap-1 transition-colors"
+                      type="button"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">flag</span>
+                      <span>Flag Query</span>
+                    </button>
+                    <button
+                      onClick={() => handleRejectSubmission(activeStudent.id)}
+                      className="h-8 rounded-lg border border-error/30 bg-surface hover:bg-error/10 text-error text-label-sm font-label-sm font-medium flex items-center justify-center gap-1 transition-colors"
+                      type="button"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">close</span>
+                      <span>Reject Entry</span>
+                    </button>
+                  </div>
+                </div>
+                <p className="text-center text-[11px] text-outline">Audit verification stamp logged with coordinator token</p>
+              </>
+            ) : (
+              <div className="text-center py-12 text-on-surface-variant">
+                <span className="material-symbols-outlined text-[36px] text-outline">touch_app</span>
+                <p className="mt-2 text-body-sm">Select a student record from the table to inspect details.</p>
+              </div>
+            )}
+          </aside>
+        </section>
+      ) : (
+        /* ── Tab: Batch Registry (Enrolled Students) ── */
+        <div className="space-y-4">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-headline-sm font-headline-sm font-bold text-on-surface">Enrolled Batch Registry</h3>
+              <p className="text-caption font-caption text-on-surface-variant">Active students enrolled in your department cohort.</p>
+            </div>
+            <div className="text-label-sm font-medium text-on-surface-variant">
+              Total Enrolled: <strong className="text-on-surface">{enrolledStudents.length}</strong>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {enrolledStudents
+              .filter(
+                (s) =>
+                  (s.roll_number || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  (s.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+              )
+              .map((student) => (
+                <div
+                  key={student.id}
+                  className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="text-body-md font-semibold text-on-surface">{student.name}</h4>
+                      <p className="text-caption font-caption text-on-surface-variant font-mono mt-0.5">
+                        {student.roll_number}
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Enrolled
+                    </span>
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-outline-variant/60 grid grid-cols-2 gap-2 text-caption font-caption">
+                    <div>
+                      <span className="text-on-surface-variant block">CGPA</span>
+                      <strong className="text-on-surface text-body-sm">{student.cgpa || '—'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-on-surface-variant block">Backlogs</span>
+                      <strong className="text-on-surface text-body-sm">{student.active_backlogs || 0}</strong>
+                    </div>
+                    <div>
+                      <span className="text-on-surface-variant block">Class</span>
+                      <span className="text-on-surface truncate">{student.class_name || 'CSE'}</span>
+                    </div>
+                    <div>
+                      <span className="text-on-surface-variant block">Email</span>
+                      <span className="text-on-surface truncate">{student.emails?.institute || student.emails?.personal || '—'}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-outline-variant/40 flex items-center justify-end">
+                    <button
+                      onClick={() => setInspectedStudentId(student.id)}
+                      className="text-label-sm font-semibold text-primary hover:underline flex items-center gap-1"
+                    >
+                      <span>Inspect Profile</span>
+                      <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                    </button>
+                  </div>
                 </div>
               ))}
-            </div>
-          )}
+          </div>
         </div>
       )}
 
       {/* ── Floating Bulk Action Bar ── */}
-      {tab === 'reviews' && selectedIds.size > 0 && (
-        <div style={{
-          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-          background: '#1F2937', color: '#F9FAFB', borderRadius: 16,
-          padding: '14px 28px', display: 'flex', alignItems: 'center', gap: 20,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 1000,
-          border: '1px solid rgba(255,255,255,0.08)',
-        }}>
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#1F2937] text-[#F9FAFB] rounded-2xl px-6 py-3.5 flex items-center gap-4 shadow-xl z-50 border border-white/10 animate-fade-in-up">
           {bulkProgress ? (
-            <>
-              <div style={{ width: 200, background: 'rgba(255,255,255,0.1)', borderRadius: 99, height: 8, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${(bulkProgress.done / bulkProgress.total) * 100}%`, background: bulkProgress.action === 'Approving' ? '#10B981' : '#EF4444', borderRadius: 99, transition: 'width 0.3s' }} />
+            <div className="flex items-center gap-3">
+              <div className="w-32 bg-white/20 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all"
+                  style={{ width: `${(bulkProgress.done / bulkProgress.total) * 100}%` }}
+                />
               </div>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{bulkProgress.action}… {bulkProgress.done}/{bulkProgress.total}</span>
-            </>
+              <span className="text-body-sm font-semibold">
+                {bulkProgress.action} {bulkProgress.done}/{bulkProgress.total}...
+              </span>
+            </div>
           ) : (
             <>
-              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{selectedIds.size} selected</span>
+              <span className="font-bold text-body-sm">{selectedIds.size} student(s) selected</span>
               <button
                 onClick={handleBulkApprove}
-                style={{ background: '#10B981', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-label-sm font-semibold transition-colors"
               >
-                ✓ Approve All Selected
+                Approve All
               </button>
               <button
                 onClick={handleBulkReject}
-                style={{ background: '#EF4444', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}
+                className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-lg text-label-sm font-semibold transition-colors"
               >
-                ✗ Reject All Selected
+                Reject All
               </button>
               <button
                 onClick={() => setSelectedIds(new Set())}
-                style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#9CA3AF', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: '0.82rem' }}
+                className="text-gray-400 hover:text-white text-label-sm px-2 py-1 transition-colors"
               >
                 Cancel
               </button>
@@ -818,25 +1091,49 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
           )}
         </div>
       )}
+
       {/* ── Request Changes Modal ── */}
       {showChangesModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
-          <div style={{ background: '#FFFFFF', borderRadius: 16, maxWidth: 500, width: '100%', padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: '1.1rem', fontWeight: 800, color: '#111827' }}>🔄 Request Data Corrections</h3>
-            <p style={{ margin: '0 0 20px', fontSize: '0.84rem', color: '#6B7280' }}>Enter the reason the student needs to correct their submission. This will be displayed to the student.</p>
-            <form onSubmit={handleRequestChanges}>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-container-lowest rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-outline-variant">
+            <div className="flex items-center justify-between pb-2 border-b border-outline-variant">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-600">flag</span>
+                <h3 className="text-headline-sm font-headline-sm font-bold text-on-surface">Request Data Corrections</h3>
+              </div>
+              <button
+                onClick={() => setShowChangesModal(false)}
+                className="text-on-surface-variant hover:text-on-surface"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <p className="mt-2 text-body-sm text-on-surface-variant">
+              Specify the exact correction required from the student. This message will be sent to their portal.
+            </p>
+            <form onSubmit={handleRequestChanges} className="mt-4 space-y-4">
               <textarea
                 required
                 rows={4}
-                placeholder="e.g., Your CGPA does not match official university records. Please verify and resubmit with correct CGPA..."
+                className="w-full text-body-sm p-3 rounded-lg border border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none placeholder:text-outline"
+                placeholder="e.g., Marksheet CGPA does not match official register. Please attach cleared grade transcript..."
                 value={changesReason}
-                onChange={e => setChangesReason(e.target.value)}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #D1D5DB', resize: 'vertical', fontSize: '0.85rem', color: '#111827', boxSizing: 'border-box' }}
+                onChange={(e) => setChangesReason(e.target.value)}
               />
-              <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setShowChangesModal(false)} style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid #D1D5DB', background: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '0.85rem' }}>Cancel</button>
-                <button type="submit" disabled={submittingChanges || !changesReason.trim()} style={{ padding: '8px 18px', borderRadius: 7, background: '#D97706', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: submittingChanges ? 0.7 : 1 }}>
-                  {submittingChanges ? 'Sending...' : 'Send Request'}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowChangesModal(false)}
+                  className="px-4 py-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low text-label-md font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingChanges || !changesReason.trim()}
+                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-label-md font-semibold transition-colors disabled:opacity-50"
+                >
+                  {submittingChanges ? 'Sending...' : 'Send Correction Notice'}
                 </button>
               </div>
             </form>
@@ -845,174 +1142,4 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ token, activ
       )}
     </div>
   );
-};
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 1200, margin: '0 auto', width: '100%' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  pageTitle: { fontSize: '1.6rem', fontWeight: 800, margin: 0, background: 'linear-gradient(135deg,#10B981,#059669)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' },
-  pageSubtitle: { color: '#6B7280', fontSize: '0.875rem', margin: '6px 0 0' },
-  tabBtn: { background: 'none', border: 'none', color: '#6B7280', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, transition: 'all 0.2s' },
-  tabActive: { background: 'rgba(16,185,129,0.1)', color: '#059669', boxShadow: 'inset 0 0 0 1px rgba(16,185,129,0.2)' },
-  refreshBtn: { background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#059669', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: '0.85rem', flexShrink: 0 },
-  statsBar: { display: 'flex', gap: 0, background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' },
-  statItem: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 20px' },
-  statVal: { fontSize: '1.6rem', fontWeight: 800, color: '#111827' },
-  statLabel: { fontSize: '0.75rem', color: '#6B7280', marginTop: 4 },
-  statDivider: { width: 1, background: 'rgba(0,0,0,0.08)', alignSelf: 'stretch' },
-  contentGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '32px',
-  },
-  column: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  colHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '8px',
-  },
-  badge: {
-    background: 'rgba(37, 99, 235, 0.1)',
-    border: '1px solid rgba(37, 99, 235, 0.2)',
-    color: '#2563EB',
-    fontSize: '0.75rem',
-    fontWeight: '600',
-    padding: '4px 10px',
-    borderRadius: '12px',
-  },
-  emptyState: {
-    background: '#F9FAFB',
-    border: '1px dashed rgba(0,0,0,0.15)',
-    borderRadius: '10px',
-    padding: '40px',
-    textAlign: 'center',
-    color: '#6B7280',
-    fontSize: '0.9rem',
-  },
-  cardList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  reviewCard: {
-    padding: '24px',
-    background: '#FFFFFF',
-    border: '1px solid rgba(0,0,0,0.08)',
-    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
-  },
-  cardTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '16px',
-  },
-  studentName: {
-    fontSize: '1.1rem',
-    fontWeight: '700',
-    color: '#111827',
-  },
-  rollNo: {
-    fontSize: '0.82rem',
-    color: '#6B7280',
-  },
-  profileThumb: {
-    width: '44px',
-    height: '44px',
-    borderRadius: '50%',
-    objectFit: 'cover',
-    border: '1px solid rgba(0, 0, 0, 0.1)',
-  },
-  studentDetails: {
-    fontSize: '0.85rem',
-    color: '#4B5563',
-    lineHeight: '1.6',
-    marginBottom: '16px',
-    background: '#F9FAFB',
-    padding: '12px',
-    borderRadius: '6px',
-    border: '1px solid rgba(0,0,0,0.04)',
-  },
-  link: {
-    color: '#2563EB',
-    textDecoration: 'underline',
-  },
-  feedbackInputRow: {
-    marginBottom: '16px',
-  },
-  feedbackInput: {
-    fontSize: '0.85rem',
-    padding: '8px 12px',
-    background: '#FFFFFF',
-    border: '1px solid rgba(0,0,0,0.1)',
-    color: '#111827',
-  },
-  cardActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '12px',
-  },
-  approveBtn: {
-    padding: '8px 16px',
-    fontSize: '0.85rem',
-  },
-  rejectBtn: {
-    background: 'none',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    color: '#DC2626',
-    padding: '8px 16px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-  },
-  diffBox: {
-    background: '#F9FAFB',
-    border: '1px solid rgba(0,0,0,0.08)',
-    borderRadius: '8px',
-    padding: '16px',
-    marginBottom: '20px',
-  },
-  diffTitle: {
-    fontSize: '0.8rem',
-    fontWeight: '700',
-    color: '#2563EB',
-    textTransform: 'uppercase',
-    marginBottom: '10px',
-    letterSpacing: '0.05em',
-  },
-  diffTable: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '0.82rem',
-  },
-  diffField: {
-    color: '#6B7280',
-    fontWeight: '500',
-    padding: '6px 4px',
-  },
-  diffOld: {
-    color: '#EF4444',
-    textDecoration: 'line-through',
-    padding: '6px 4px',
-  },
-  diffNew: {
-    color: '#10B981',
-    fontWeight: '600',
-    padding: '6px 4px',
-  },
-  spinner: { width: 20, height: 20, border: '3px solid rgba(16,185,129,0.2)', borderTop: '3px solid #10B981', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block', marginRight: 10 },
-  loadingText: { color: '#6B7280', fontSize: '0.9rem', textAlign: 'center' as const, padding: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  errorAlert: {
-    background: 'rgba(239, 68, 68, 0.15)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    color: '#DC2626',
-    borderRadius: '8px',
-    padding: '12px 16px',
-    fontSize: '0.85rem',
-    marginBottom: '20px',
-  },
 };

@@ -4,6 +4,7 @@ import { BulkStudentUpload } from '../components/BulkStudentUpload';
 import { TpoStudentHierarchyView } from '../components/TpoStudentHierarchyView';
 import { AiDriveModal } from '../components/AiDriveModal';
 import { DriveStudentExcelSelector } from '../components/DriveStudentExcelSelector';
+import { TpoRecruitmentOperations } from '../components/TpoRecruitmentOperations';
 import {
   AnalyticsIcon,
   CalendarIcon,
@@ -20,7 +21,6 @@ import {
   BuildingIcon,
   CloseIcon,
   PhoneIcon,
-  SparklesIcon,
 } from '../components/Icons';
 import { getSafeUrl } from '../utils/safeUrl';
 
@@ -488,399 +488,29 @@ export const TpoDashboard: React.FC<TpoDashboardProps> = ({ token, institutionId
         </div>
       )}
 
-      {/* ── DRIVES LIST (MATCHING IMAGE 1) ── */}
+      {/* ── RECRUITMENT OPERATIONS WORKSPACE (PLACEMENTHUB 2.0) ── */}
       {tab === 'drives' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Header Bar matching Image 1 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                  Recruitment Drives
-                </h2>
-                <span
-                  style={{
-                    background: 'rgba(99,102,241,0.12)',
-                    color: '#4F46E5',
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  Tpo
-                </span>
-              </div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '4px 0 0 0' }}>
-                Browse active and past recruitment drives.
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                onClick={() => setIsAiDriveModalOpen(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  padding: '10px 18px',
-                  borderRadius: 8,
-                  fontWeight: 700,
-                  fontSize: '0.88rem',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <SparklesIcon size={16} color="#FFF" /> Create with AI ⚡
-              </button>
-
-              <button
-                onClick={() => {
-                  setForm({ ...EMPTY_FORM });
-                  setEditingDriveId(null);
-                  setIsDriveModalOpen(true);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: '#0B192C',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  padding: '10px 18px',
-                  borderRadius: 8,
-                  fontWeight: 700,
-                  fontSize: '0.88rem',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(11,25,44,0.15)',
-                }}
-              >
-                <PlusIcon size={16} color="#FFF" /> Create Manually
-              </button>
-            </div>
-          </div>
-
-
-          {/* Segmented Filter Pills matching Image 1 */}
-          <div
-            style={{
-              display: 'inline-flex',
-              gap: 4,
-              background: 'var(--bg-main)',
-              padding: 4,
-              borderRadius: 10,
-              border: '1px solid var(--border-color)',
-              width: 'fit-content',
-            }}
-          >
-            <button
-              onClick={() => setDriveFilter('active')}
-              style={{
-                padding: '6px 18px',
-                borderRadius: 7,
-                border: 'none',
-                background: driveFilter === 'active' ? 'var(--card-bg)' : 'transparent',
-                color: driveFilter === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                fontWeight: driveFilter === 'active' ? 700 : 500,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                boxShadow: driveFilter === 'active' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              Active drives
-            </button>
-            <button
-              onClick={() => setDriveFilter('closed')}
-              style={{
-                padding: '6px 18px',
-                borderRadius: 7,
-                border: 'none',
-                background: driveFilter === 'closed' ? 'var(--card-bg)' : 'transparent',
-                color: driveFilter === 'closed' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                fontWeight: driveFilter === 'closed' ? 700 : 500,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                boxShadow: driveFilter === 'closed' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              Closed
-            </button>
-          </div>
-
-          {loading ? (
-            <Loader color="#3B82F6" />
-          ) : drives.filter(d => (driveFilter === 'active' ? d.is_active : !d.is_active)).length === 0 ? (
-            <div
-              style={{
-                background: 'var(--card-bg)',
-                border: '1px dashed var(--border-color)',
-                borderRadius: 16,
-                padding: '48px 24px',
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 14,
-                boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-              }}
-            >
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 16,
-                  background: 'rgba(99, 102, 241, 0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#6366F1',
-                }}
-              >
-                <BuildingIcon size={28} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '1.15rem', color: 'var(--text-primary)' }}>
-                  {driveFilter === 'active' ? 'No active placement drives found' : 'No closed placement drives'}
-                </div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', maxWidth: 440, margin: '6px auto 0' }}>
-                  {driveFilter === 'active'
-                    ? 'Use the AI Agent pipeline to extract drive requirements directly from a Job Description, or create one manually.'
-                    : 'Closed drives whose registration deadlines have passed will appear here.'}
-                </p>
-              </div>
-              {driveFilter === 'active' && (
-                <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                  <button
-                    onClick={() => setIsAiDriveModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
-                      color: '#FFF',
-                      border: 'none',
-                      padding: '9px 18px',
-                      borderRadius: 8,
-                      fontWeight: 700,
-                      fontSize: '0.86rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <SparklesIcon size={16} /> Create with AI
-                  </button>
-                  <button
-                    onClick={() => {
-                      setForm({ ...EMPTY_FORM });
-                      setEditingDriveId(null);
-                      setIsDriveModalOpen(true);
-                    }}
-                    style={{
-                      background: 'var(--bg-main)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-primary)',
-                      padding: '9px 18px',
-                      borderRadius: 8,
-                      fontWeight: 600,
-                      fontSize: '0.86rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Create Manually
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 20 }}>
-              {drives
-                .filter(d => (driveFilter === 'active' ? d.is_active : !d.is_active))
-                .map(d => {
-                  const initials = d.company_name
-                    ? d.company_name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
-                    : 'CO';
-                  const isOpen = d.is_active;
-
-                  return (
-                    <div
-                      key={d.id}
-                      style={{
-                        background: 'var(--card-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 16,
-                        padding: 20,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        gap: 14,
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                        transition: 'all 0.2s ease',
-                      }}
-                    >
-                      <div>
-                        {/* Top Row: Square initials box, Company Name, Job Role, open/closed badge */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-                          <div
-                            style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 10,
-                              background: '#0B192C',
-                              color: '#FFFFFF',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 800,
-                              fontSize: '1.05rem',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {initials}
-                          </div>
-
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div
-                              style={{
-                                fontWeight: 800,
-                                fontSize: '1.05rem',
-                                color: 'var(--text-primary)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {d.company_name}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: '0.84rem',
-                                color: 'var(--text-secondary)',
-                                marginTop: 2,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {d.job_role}
-                            </div>
-                          </div>
-
-                          <span
-                            style={{
-                              border: isOpen ? '1px solid #22C55E' : '1px solid #9CA3AF',
-                              color: isOpen ? '#16A34A' : '#6B7280',
-                              background: isOpen ? 'rgba(34,197,94,0.06)' : 'rgba(156,163,175,0.06)',
-                              padding: '2px 10px',
-                              borderRadius: 12,
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {isOpen ? 'open' : 'closed'}
-                          </span>
-                        </div>
-
-                        {/* Mid Info Grid matching Image 1 (No Emojis) */}
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr',
-                            gap: 10,
-                            fontSize: '0.84rem',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>₹</span>
-                            <span>{d.package || 'N/A'}</span>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontWeight: 600 }}>CGPA =</span>
-                            <span>{d.min_cgpa ?? 0}</span>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontWeight: 600 }}>Depts:</span>
-                            <span>{d.allowed_departments?.length || 1}</span>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontWeight: 600 }}>Deadline:</span>
-                            <span>
-                              {d.drive_deadline
-                                ? new Date(d.drive_deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-                                : 'None'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Footer & Manage Button matching attached image */}
-                      <div>
-                        <div style={{ borderTop: '1px solid var(--border-color)', margin: '0 0 14px 0' }} />
-
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                            {d.allowed_departments?.length || 1} eligible dept(s)
-                          </span>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <button
-                              onClick={() => {
-                                setExcelSelectorDrive(d);
-                                setIsExcelSelectorOpen(true);
-                              }}
-                              style={{
-                                background: 'rgba(16, 124, 65, 0.12)',
-                                border: '1px solid rgba(16, 124, 65, 0.35)',
-                                color: '#107C41',
-                                padding: '6px 14px',
-                                borderRadius: 8,
-                                fontWeight: 700,
-                                fontSize: '0.84rem',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                transition: 'all 0.15s ease',
-                              }}
-                              title="Select branch, year, section and filter students via Excel sheet"
-                            >
-                              <FileSpreadsheetIcon size={15} /> Select Students
-                            </button>
-
-                            <button
-                              onClick={() => openApplicants(d)}
-                              style={{
-                                background: 'var(--bg-main)',
-                                border: '1px solid var(--border-color)',
-                                color: 'var(--text-primary)',
-                                padding: '6px 18px',
-                                borderRadius: 8,
-                                fontWeight: 600,
-                                fontSize: '0.84rem',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                              }}
-                            >
-                              Manage
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
+        <TpoRecruitmentOperations
+          drives={drives}
+          students={students}
+          eventsList={eventsList}
+          loading={loading}
+          driveFilter={driveFilter}
+          setDriveFilter={setDriveFilter}
+          loadDrives={loadDrives}
+          openApplicants={openApplicants}
+          startEdit={startEdit}
+          deleteDrive={deleteDrive}
+          setIsAiDriveModalOpen={setIsAiDriveModalOpen}
+          setIsDriveModalOpen={setIsDriveModalOpen}
+          setIsExcelSelectorOpen={setIsExcelSelectorOpen}
+          setExcelSelectorDrive={setExcelSelectorDrive}
+          setForm={setForm}
+          setEditingDriveId={setEditingDriveId}
+          setTab={setTab}
+          flash={flash}
+          emptyForm={EMPTY_FORM}
+        />
       )}
 
       {/* ── HR ANALYTICS & ASSESSMENT INSIGHTS TAB ── */}
