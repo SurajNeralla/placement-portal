@@ -1,6 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from mongomock_motor import AsyncMongoMockClient
 from app.config import settings
+from app.db.seed import seed_initial_data
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,10 @@ async def connect_to_mongo():
         db.client = AsyncMongoMockClient()
         db.db = db.client[settings.MONGO_DB]
         logger.info("Mock MongoDB connection ready.")
+        try:
+            await seed_initial_data(db.db)
+        except Exception as e:
+            logger.warning(f"Failed to seed initial data: {e}")
         return
         
     try:
@@ -33,6 +38,11 @@ async def connect_to_mongo():
         db.client = AsyncMongoMockClient()
         db.db = db.client[settings.MONGO_DB]
         logger.info("Mock MongoDB connection fallback ready.")
+
+    try:
+        await seed_initial_data(db.db)
+    except Exception as e:
+        logger.warning(f"Failed to seed initial data: {e}")
 
 async def close_mongo_connection():
     if db.client and hasattr(db.client, "close"):

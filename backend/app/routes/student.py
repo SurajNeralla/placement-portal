@@ -345,7 +345,39 @@ async def get_student_profile(
 ):
     student = await get_student_for_user(current_user["user_id"], current_user.get("email"))
     if not student:
-        raise HTTPException(status_code=404, detail="Student profile not found.")
+        # Check if user exists in users collection as a Student and auto-provision initial student profile
+        user_doc = await db.db.users.find_one(id_query(current_user["user_id"]))
+        if not user_doc and current_user.get("email"):
+            user_doc = await db.db.users.find_one({"email": current_user["email"].strip().lower()})
+        
+        if user_doc and user_doc.get("role") == "Student":
+            new_id = str(uuid.uuid4())
+            student = {
+                "id": new_id,
+                "user_id": str(user_doc.get("id") or user_doc.get("_id") or current_user["user_id"]),
+                "institution_id": institution_id,
+                "name": user_doc.get("name") or current_user.get("name") or "Student",
+                "emails": {
+                    "institute": user_doc.get("email") or current_user.get("email") or "",
+                    "personal": ""
+                },
+                "roll_number": user_doc.get("roll_number", ""),
+                "department_name": user_doc.get("department_name", "Computer Science & Engineering"),
+                "program_name": user_doc.get("program_name", "B.Tech"),
+                "passout_year": 2027,
+                "academic_identity": {
+                    "program_name": "B.Tech",
+                    "department_name": "Computer Science & Engineering",
+                    "batch_label": "2023–2027",
+                    "class_name": "Section-A",
+                    "graduation_year": 2027
+                },
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.db.students.insert_one(student)
+        else:
+            raise HTTPException(status_code=404, detail="Student profile not found.")
     
     student["id"] = str(student.get("_id", student.get("id")))
     if "_id" in student:
@@ -390,7 +422,7 @@ async def request_profile_update(
     institution_id: str = Depends(get_tenant_id)
 ):
     student_id = current_user["user_id"]
-    student = await db.db.students.find_one(id_query(student_id))
+    student = await get_student_for_user(student_id, current_user.get("email"))
     if not student:
         raise HTTPException(status_code=404, detail="Student profile not found.")
         
@@ -562,7 +594,7 @@ async def get_student_events(
     current_user: dict = Depends(get_current_user),
     institution_id: str = Depends(get_tenant_id)
 ):
-    student = await db.db.students.find_one(id_query(current_user["user_id"]))
+    student = await get_student_for_user(current_user["user_id"], current_user.get("email"))
     if not student:
         raise HTTPException(status_code=404, detail="Student profile not found.")
 
@@ -910,7 +942,7 @@ async def get_my_validation_report(
     institution_id: str = Depends(get_tenant_id)
 ):
     """Returns complete 10-category validation report for the authenticated student."""
-    student = await db.db.students.find_one(id_query(current_user["user_id"]))
+    student = await get_student_for_user(current_user["user_id"], current_user.get("email"))
     if not student:
         raise HTTPException(status_code=404, detail="Student profile not found.")
     return StudentValidationService.validate_student(student)
